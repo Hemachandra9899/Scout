@@ -28,6 +28,11 @@ Deno.serve({ port: 8787 }, async (req: Request) => {
         status: "ok",
         service: "rlm-runtime",
         modelServiceOk,
+        features: {
+          pyodideExecution: true,
+          rlmLoop: true,
+          recursiveLlmQuery: true,
+        },
       });
     }
 
@@ -43,6 +48,8 @@ Deno.serve({ port: 8787 }, async (req: Request) => {
         projectId: body.projectId,
         query: body.query,
         maxSteps: body.maxSteps,
+        depth: body.depth,
+        maxDepth: body.maxDepth,
       });
 
       return json(result);

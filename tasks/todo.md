@@ -54,7 +54,24 @@ Verified:
 - response includes `generatedCode`, `stdout`, `final`, `steps` trace ✅
 - No markdown code fences in executed code ✅
 - No recursion yet.
-- No `llm_query()` yet.
 - No Firecrawl tools yet.
 - No Qdrant retrieval yet.
 - No graph memory yet.
+
+## Day 4 Review
+
+Implemented:
+- Added `depth` and `maxDepth` to request/response types.
+- Added async `llm_query(prompt, context=None)` inside Python sandbox.
+- Pyodide bridge via `pyodide.globals.set()` for JS→Python callback.
+- Parent RLM can spawn child RLM runs with `await llm_query(...)`.
+- Child final result returns as a Python value to parent code.
+- `subAgentHandler` calls `RlmLoop.run()` recursively.
+- Max recursion depth protection — `llm_query` returns error object when depth exceeded.
+- Runtime remains stateless and minimal.
+
+Verified:
+- `GET /health` — `recursiveLlmQuery: true` ✅
+- Normal Python execution — `final: 96` ✅
+- Recursive `llm_query` — `final: 110` (child 100 + 10) ✅
+- `maxDepth=0` protection — returns error `"Maximum recursion depth 0 reached"` ✅

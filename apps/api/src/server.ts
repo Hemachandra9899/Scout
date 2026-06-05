@@ -62,6 +62,21 @@ app.get("/projects", async () => {
   });
 });
 
+app.get("/projects/:id/jobs", async (req) => {
+  const params = z.object({ id: z.string().uuid() }).parse(req.params);
+
+  return prisma.researchJob.findMany({
+    where: { projectId: params.id },
+    orderBy: { createdAt: "desc" },
+    include: {
+      reports: true,
+      agentRuns: {
+        include: { steps: true },
+      },
+    },
+  });
+});
+
 app.post("/research-jobs", async (req) => {
   const body = z.object({
     projectId: z.string().uuid(),

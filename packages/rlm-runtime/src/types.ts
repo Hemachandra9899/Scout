@@ -8,6 +8,8 @@ export type ExecuteRequest = {
   projectId?: string;
   query: string;
   maxSteps?: number;
+  depth?: number;
+  maxDepth?: number;
 };
 
 export type ModelChatResponse = {
@@ -16,6 +18,11 @@ export type ModelChatResponse = {
   reasoning?: string;
   content: string;
 };
+
+export type SubAgentHandler = (
+  prompt: string,
+  context?: unknown,
+) => Promise<unknown>;
 
 export type PythonExecutionResult = {
   stdout: string;
@@ -38,6 +45,8 @@ export type RlmRunResult = {
   runId?: string;
   projectId?: string;
   query: string;
+  depth: number;
+  maxDepth: number;
   final: unknown;
   steps: RlmStep[];
   error: string | null;
