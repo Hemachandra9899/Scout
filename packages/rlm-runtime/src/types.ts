@@ -21,7 +21,12 @@ export type ModelChatResponse = {
 
 export type SubAgentHandler = (
   prompt: string,
-  context?: unknown,
+  context?: unknown
+) => Promise<unknown>;
+
+export type ToolHandler = (
+  name: string,
+  args: Record<string, unknown>
 ) => Promise<unknown>;
 
 export type PythonExecutionResult = {

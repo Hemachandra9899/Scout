@@ -1,9 +1,13 @@
-import { loadPyodide, type PyodideInterface } from "pyodide";
-import type { PythonExecutionResult, SubAgentHandler } from "../types.ts";
+import { loadPyodide } from "pyodide";
+import type {
+  PythonExecutionResult,
+  SubAgentHandler,
+  ToolHandler,
+} from "../types.ts";
 
-let pyodidePromise: Promise<PyodideInterface> | null = null;
+let pyodidePromise: Promise<any> | null = null;
 
-async function getPyodide(): Promise<PyodideInterface> {
+async function getPyodide() {
   if (!pyodidePromise) {
     pyodidePromise = loadPyodide();
   }
@@ -14,6 +18,7 @@ export class PythonSandbox {
   async execute(
     code: string,
     subAgentHandler: SubAgentHandler,
+    toolHandler: ToolHandler
   ): Promise<PythonExecutionResult> {
     const pyodide = await getPyodide();
 
@@ -21,7 +26,14 @@ export class PythonSandbox {
       "_rlm_query_js",
       async (prompt: string, context: unknown) => {
         return await subAgentHandler(String(prompt), context);
-      },
+      }
+    );
+
+    pyodide.globals.set(
+      "_rlm_tool_js",
+      async (name: string, args: unknown) => {
+        return await toolHandler(String(name), args as Record<string, unknown>);
+      }
     );
 
     const wrappedCode = `
@@ -36,12 +48,36 @@ _rlm_final_called = False
 _rlm_final_value = None
 _rlm_error = None
 
+def _to_py(value):
+    try:
+        return value.to_py()
+    except Exception:
+        return value
+
 async def llm_query(prompt, context=None):
     result = await _rlm_query_js(prompt, to_js(context or {}))
-    try:
-        return result.to_py()
-    except Exception:
-        return result
+    return _to_py(result)
+
+async def crawl_url(url, max_pages=1):
+    result = await _rlm_tool_js("crawl_url", to_js({
+        "url": url,
+        "maxPages": max_pages
+    }))
+    return _to_py(result)
+
+async def search_kb(query, top_k=5):
+    result = await _rlm_tool_js("search_kb", to_js({
+        "query": query,
+        "topK": top_k
+    }))
+    return _to_py(result)
+
+async def query_graph(query, depth=1):
+    result = await _rlm_tool_js("query_graph", to_js({
+        "query": query,
+        "depth": depth
+    }))
+    return _to_py(result)
 
 def final(value=None):
     global _rlm_final_called, _rlm_final_value
@@ -56,7 +92,7 @@ def _rlm_to_jsonable(value):
         return str(value)
 
 async def _rlm_user_main():
-${indent(code)}
+${this.indent(code)}
 
 _old_stdout = sys.stdout
 sys.stdout = _rlm_stdout
@@ -94,11 +130,11 @@ json.dumps({
       };
     }
   }
-}
 
-function indent(code: string): string {
-  return code
-    .split("\n")
-    .map((line) => `    ${line}`)
-    .join("\n");
+  private indent(code: string): string {
+    return code
+      .split("\n")
+      .map((line) => `    ${line}`)
+      .join("\n");
+  }
 }

@@ -5,6 +5,16 @@ import { redisConnection } from "./queue.js";
 
 const runtimeUrl = process.env.RLM_RUNTIME_URL || "http://rlm-runtime:8787";
 
+function readable(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 new Worker(
   "research-jobs",
   async (job) => {
@@ -25,51 +35,79 @@ new Worker(
       },
     });
 
-    const resp = await fetch(`${runtimeUrl}/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        runId: run.id,
-        projectId: researchJob.projectId,
-        query: researchJob.question,
-      }),
-    });
+    try {
+      const resp = await fetch(`${runtimeUrl}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: run.id,
+          projectId: researchJob.projectId,
+          query: researchJob.question,
+          maxSteps: 5,
+          maxDepth: 2,
+        }),
+      });
 
-    const result = await resp.json();
+      const result = await resp.json();
 
-    await prisma.agentStep.create({
-      data: {
-        runId: run.id,
-        stepIndex: 0,
-        stdout: JSON.stringify(result),
-        result,
-      },
-    });
+      await prisma.agentStep.create({
+        data: {
+          runId: run.id,
+          stepIndex: 0,
+          stdout: readable(result),
+          result,
+        },
+      });
 
-    await prisma.report.create({
-      data: {
-        projectId: researchJob.projectId,
-        jobId: researchJob.id,
-        title: "Initial RLM Forge Report",
-        content: "RLM Forge minimal pipeline is connected. Real recursive runtime comes next.",
-        metadata: { result },
-      },
-    });
+      const answer =
+        result?.final !== undefined && result?.final !== null
+          ? readable(result.final)
+          : result?.error
+            ? readable(result.error)
+            : readable(result);
 
-    await prisma.agentRun.update({
-      where: { id: run.id },
-      data: {
-        status: "COMPLETED",
-        finalOutput: result,
-      },
-    });
+      await prisma.report.create({
+        data: {
+          projectId: researchJob.projectId,
+          jobId: researchJob.id,
+          title: "RLM Answer",
+          content: answer,
+          metadata: { result },
+        },
+      });
 
-    await prisma.researchJob.update({
-      where: { id: researchJob.id },
-      data: { status: "COMPLETED" },
-    });
+      await prisma.agentRun.update({
+        where: { id: run.id },
+        data: {
+          status: result.status === "completed" ? "COMPLETED" : "FAILED",
+          finalOutput: result,
+        },
+      });
 
-    return { status: "completed" };
+      await prisma.researchJob.update({
+        where: { id: researchJob.id },
+        data: {
+          status: result.status === "completed" ? "COMPLETED" : "FAILED",
+          error: result.error ?? null,
+        },
+      });
+
+      return { status: result.status };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      await prisma.agentRun.update({
+        where: { id: run.id },
+        data: { status: "FAILED", finalOutput: { error: message } },
+      });
+
+      await prisma.researchJob.update({
+        where: { id: researchJob.id },
+        data: { status: "FAILED", error: message },
+      });
+
+      throw error;
+    }
   },
   { connection: redisConnection }
 );

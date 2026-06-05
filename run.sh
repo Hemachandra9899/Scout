@@ -50,6 +50,7 @@ run_bg() {
 }
 
 export $(grep -v '^#' .env | xargs)
+export API_URL="http://localhost:8000"
 
 log "ROOT" "Starting RLM Forge..."
 

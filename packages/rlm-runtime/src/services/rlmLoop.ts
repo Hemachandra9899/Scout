@@ -1,12 +1,14 @@
 import { sanitizeGeneratedPython, truncateText } from "../utils/codeUtils.ts";
 import { ModelClient } from "./modelClient.ts";
 import { PythonSandbox } from "./pythonSandbox.ts";
+import { ToolsClient } from "./toolsClient.ts";
 import type {
   ChatMessage,
   ExecuteRequest,
   RlmRunResult,
   RlmStep,
   SubAgentHandler,
+  ToolHandler,
 } from "../types.ts";
 
 const DEFAULT_MAX_STEPS = 5;
@@ -17,10 +19,15 @@ You are running inside RLM Forge, a Recursive Language Model Python execution en
 
 You must write Python code only.
 
-Available functions:
-- print(value): inspect intermediate values
-- final(value): return the final answer and stop execution
-- await llm_query(prompt: str, context: dict = None): spawn a recursive child agent and return its final result
+Available async functions:
+- await llm_query(prompt: str, context: dict = None)
+- await crawl_url(url: str, max_pages: int = 1)
+- await search_kb(query: str, top_k: int = 5)
+- await query_graph(query: str, depth: int = 1)
+
+Available sync functions:
+- print(value)
+- final(value)
 
 Rules:
 1. Return only executable Python code.
@@ -28,17 +35,16 @@ Rules:
 3. Do not wrap code in triple backticks.
 4. Do not explain.
 5. Always call final(...) when the task is complete.
-6. Keep code simple.
-7. Use await llm_query(...) only for independent subtasks.
-8. Child agent results are returned as Python values.
-9. Prefer JSON-serializable dict/list/string/number outputs.
-10. Use only Python standard library unless clearly unnecessary.
+6. Use await for async tools.
+7. Use crawl_url only when a URL is given or clearly needed.
+8. Use search_kb before answering from stored project knowledge.
+9. Prefer normal readable final answers unless the user asks for JSON.
 `.trim();
 
 function buildInitialMessages(
   query: string,
   depth: number,
-  maxDepth: number,
+  maxDepth: number
 ): ChatMessage[] {
   return [
     { role: "system", content: SYSTEM_PROMPT },
@@ -47,11 +53,11 @@ function buildInitialMessages(
       content: [
         `User task:`,
         query,
-        "",
+        ``,
         `Current recursion depth: ${depth}`,
         `Maximum recursion depth: ${maxDepth}`,
-        "",
-        "Write the next Python code block to solve this task.",
+        ``,
+        `Write the next Python code block to solve this task.`,
       ].join("\n"),
     },
   ];
@@ -83,7 +89,7 @@ If there is an error, fix it with the next code block.
 
 function childRunId(
   parentRunId: string | undefined,
-  depth: number,
+  depth: number
 ): string | undefined {
   if (!parentRunId) return undefined;
   return `${parentRunId}:child:${depth}:${crypto.randomUUID()}`;
@@ -92,41 +98,44 @@ function childRunId(
 export class RlmLoop {
   private readonly modelClient: ModelClient;
   private readonly sandbox: PythonSandbox;
+  private readonly toolsClient: ToolsClient;
 
   constructor(
     modelClient = new ModelClient(),
     sandbox = new PythonSandbox(),
+    toolsClient = new ToolsClient()
   ) {
     this.modelClient = modelClient;
     this.sandbox = sandbox;
+    this.toolsClient = toolsClient;
   }
 
   async run(req: ExecuteRequest): Promise<RlmRunResult> {
     const depth = Math.max(0, req.depth ?? 0);
     const maxDepth = Math.max(0, req.maxDepth ?? DEFAULT_MAX_DEPTH);
-    const maxSteps = Math.max(
-      1,
-      Math.min(req.maxSteps ?? DEFAULT_MAX_STEPS, 10),
-    );
+    const maxSteps = Math.max(1, Math.min(req.maxSteps ?? DEFAULT_MAX_STEPS, 10));
 
     const messages = buildInitialMessages(req.query, depth, maxDepth);
     const steps: RlmStep[] = [];
 
-    const subAgentHandler: SubAgentHandler = async (
-      prompt: string,
-      _context?: unknown,
-    ) => {
+    const subAgentHandler: SubAgentHandler = async (prompt, context) => {
       if (depth >= maxDepth) {
         return {
-          error:
-            `Maximum recursion depth ${maxDepth} reached. Solve manually in the current agent.`,
+          error: `Maximum recursion depth ${maxDepth} reached. Solve manually in the current agent.`,
         };
       }
+
+      const childPrompt = [
+        prompt,
+        ``,
+        `Parent context:`,
+        JSON.stringify(context ?? {}, null, 2),
+      ].join("\n");
 
       const childResult = await this.run({
         runId: childRunId(req.runId, depth + 1),
         projectId: req.projectId,
-        query: prompt,
+        query: childPrompt,
         maxSteps,
         depth: depth + 1,
         maxDepth,
@@ -144,6 +153,12 @@ export class RlmLoop {
       return childResult.final;
     };
 
+    const toolHandler: ToolHandler = async (name, args) => {
+      return this.toolsClient.callTool(name, args, {
+        projectId: req.projectId,
+      });
+    };
+
     try {
       for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
         const rawCode = await this.modelClient.chatCoding(messages);
@@ -151,6 +166,7 @@ export class RlmLoop {
         const execution = await this.sandbox.execute(
           generatedCode,
           subAgentHandler,
+          toolHandler
         );
 
         const step: RlmStep = {
@@ -194,8 +210,7 @@ export class RlmLoop {
         maxDepth,
         final: steps.at(-1)?.final ?? null,
         steps,
-        error:
-          "RLM loop reached maxSteps before final() completed successfully.",
+        error: "RLM loop reached maxSteps before final() completed successfully.",
       };
     } catch (error) {
       return {
