@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelChatResponse } from "./types.ts";
+import type { ChatMessage, ModelChatResponse } from "../types.ts";
 
 const DEFAULT_MODEL_SERVICE_URL = "http://model-service:8100";
 

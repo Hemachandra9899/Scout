@@ -1,4 +1,4 @@
-import { sanitizeGeneratedPython, truncateText } from "./codeUtils.ts";
+import { sanitizeGeneratedPython, truncateText } from "../utils/codeUtils.ts";
 import { ModelClient } from "./modelClient.ts";
 import { PythonSandbox } from "./pythonSandbox.ts";
 import type {
@@ -7,7 +7,7 @@ import type {
   RlmRunResult,
   RlmStep,
   SubAgentHandler,
-} from "./types.ts";
+} from "../types.ts";
 
 const DEFAULT_MAX_STEPS = 5;
 const DEFAULT_MAX_DEPTH = 2;

@@ -1,5 +1,5 @@
 import { loadPyodide, type PyodideInterface } from "pyodide";
-import type { PythonExecutionResult, SubAgentHandler } from "./types.ts";
+import type { PythonExecutionResult, SubAgentHandler } from "../types.ts";
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
 
@@ -73,8 +73,7 @@ json.dumps({
     "final": _rlm_to_jsonable(_rlm_final_value),
     "finalCalled": _rlm_final_called,
     "error": _rlm_error
-})
-`;
+})`;
 
     try {
       const raw = await pyodide.runPythonAsync(wrappedCode);

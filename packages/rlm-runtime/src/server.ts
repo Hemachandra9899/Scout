@@ -1,5 +1,5 @@
-import { ModelClient } from "./modelClient.ts";
-import { RlmLoop } from "./rlmLoop.ts";
+import { ModelClient } from "./services/modelClient.ts";
+import { RlmLoop } from "./services/rlmLoop.ts";
 import type { ExecuteRequest } from "./types.ts";
 
 const modelClient = new ModelClient();
