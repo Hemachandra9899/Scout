@@ -13,12 +13,25 @@
 - [x] Add Next.js placeholder
 - [x] Add Docker Compose
 - [x] Add agent rules
-- [ ] Run npm install
-- [ ] Generate Prisma client
-- [ ] Run Prisma migration/db push
-- [ ] Start Docker services
-- [ ] Verify health endpoints
+- [x] npm install — works ✅
+- [x] Prisma generate — works ✅
+- [x] Prisma db push — syncs to Supabase ✅
+- [x] Start infra — Redis (Docker) ✅ Qdrant (local binary) ✅
+- [x] Verify health endpoints — all "ok" ✅
+- [x] Create project via API — Supabase + Prisma connected ✅
+- [x] Install Python model-service deps — all pip installed ✅
+- [x] Start model-service — uvicorn on 8100 ✅
+- [x] Start rlm-runtime — Deno on 8787 ✅
+- [x] Start API — Fastify on 8000 ✅
+- [x] Test research job — STATUS: COMPLETED with report, agent run, steps ✅
 
-## Review
+## Notes
 
-Pending.
+- Docker pull failed for Qdrant (TLS timeout). Qdrant running from downloaded binary instead.
+- .env updated for local URLs (localhost not Docker service names). Revert to Docker-style URLs when using `docker compose up --build`.
+- Deno v2.7.14 installed locally.
+- Next/web is a placeholder — not tested (needs `npm run dev:web`).
+- Full `docker compose up --build` not tested due to Qdrant pull issue.
+- NVIDIA and Firecrawl real API keys in .env — rotate after local setup.
+- NVIDIA models updated: reasoning=`meta/llama-3.3-70b-instruct`, coding=`qwen/qwen2-7b-instruct`
+- Deno needs `--env-file` or env vars passed explicitly; deno.json updated
