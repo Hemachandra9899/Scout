@@ -63,16 +63,10 @@ fi
 wait_for_port 6379 redis
 
 # Qdrant
-if lsof -ti :6333 -sTCP:LISTEN &>/dev/null; then
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^rlm-forge-qdrant$'; then
   log "qdrant" "already running"
 else
-  QDRANT_BIN="/tmp/qdrant-bin/qdrant"
-  QDRANT_CFG="/tmp/qdrant-config/config.yaml"
-  if [ -f "$QDRANT_BIN" ]; then
-    run_bg "qdrant" "$QDRANT_BIN" --config-path "$QDRANT_CFG"
-  else
-    log "qdrant" "binary not found, skipping"
-  fi
+  run_bg "qdrant" docker run --rm --name rlm-forge-qdrant -p 6333:6333 -p 6334:6334 -v /tmp/qdrant_storage:/qdrant/storage qdrant/qdrant:latest
 fi
 wait_for_port 6333 qdrant
 

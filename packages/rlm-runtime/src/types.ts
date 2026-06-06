@@ -45,6 +45,22 @@ export type RlmStep = {
   error: string | null;
 };
 
+export type StrategyMethod = {
+  name: string;
+  score: number;
+  risk: string;
+  reason: string;
+};
+
+export type AnswerStrategy = {
+  enabled: boolean;
+  recommendedMethod: string;
+  bestMethod: string;
+  shouldUseTools: boolean;
+  methods: StrategyMethod[];
+  reason: string;
+};
+
 export type RlmRunResult = {
   status: "completed" | "max_steps_reached" | "failed";
   runId?: string;

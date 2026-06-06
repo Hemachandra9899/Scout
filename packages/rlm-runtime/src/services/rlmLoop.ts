@@ -2,6 +2,7 @@ import { sanitizeGeneratedPython, truncateText } from "../utils/codeUtils.ts";
 import { ModelClient } from "./modelClient.ts";
 import { PythonSandbox } from "./pythonSandbox.ts";
 import { ToolsClient } from "./toolsClient.ts";
+import { StrategyAgent } from "./strategyAgent.ts";
 import type {
   ChatMessage,
   ExecuteRequest,
@@ -99,15 +100,18 @@ export class RlmLoop {
   private readonly modelClient: ModelClient;
   private readonly sandbox: PythonSandbox;
   private readonly toolsClient: ToolsClient;
+  private readonly strategyAgent: StrategyAgent;
 
   constructor(
     modelClient = new ModelClient(),
     sandbox = new PythonSandbox(),
-    toolsClient = new ToolsClient()
+    toolsClient = new ToolsClient(),
+    strategyAgent = new StrategyAgent(modelClient)
   ) {
     this.modelClient = modelClient;
     this.sandbox = sandbox;
     this.toolsClient = toolsClient;
+    this.strategyAgent = strategyAgent;
   }
 
   async run(req: ExecuteRequest): Promise<RlmRunResult> {
@@ -115,7 +119,33 @@ export class RlmLoop {
     const maxDepth = Math.max(0, req.maxDepth ?? DEFAULT_MAX_DEPTH);
     const maxSteps = Math.max(1, Math.min(req.maxSteps ?? DEFAULT_MAX_STEPS, 10));
 
-    const messages = buildInitialMessages(req.query, depth, maxDepth);
+    const strategy = depth === 0
+      ? await this.strategyAgent.plan(req.query)
+      : {
+          enabled: false,
+          recommendedMethod: "direct_answer",
+          bestMethod: "direct_answer",
+          shouldUseTools: false,
+          methods: [],
+          reason: "Strategy skipped for child agent.",
+        };
+
+    const strategyText = strategy.enabled
+      ? `
+
+Answer strategy selected before execution:
+${JSON.stringify(strategy, null, 2)}
+
+Follow this strategy when writing Python.
+Do not mention the strategy unless useful to the user.
+`
+      : "";
+
+    const messages = buildInitialMessages(
+      `${req.query}${strategyText}`,
+      depth,
+      maxDepth
+    );
     const steps: RlmStep[] = [];
 
     const subAgentHandler: SubAgentHandler = async (prompt, context) => {
