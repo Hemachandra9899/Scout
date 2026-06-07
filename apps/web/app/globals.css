@@ -576,6 +576,52 @@ textarea:focus {
   margin: 0 0 8px;
 }
 
+.markdown-table-wrap {
+  overflow-x: auto;
+  margin: 12px 0;
+  min-width: 620px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.markdown-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.markdown-table-wrap th,
+.markdown-table-wrap td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-table-wrap th {
+  background: var(--panel2);
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.markdown-table-wrap tbody tr:nth-child(even) {
+  background: var(--panel1);
+}
+
+.raw-data-warning {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #856404;
+  line-height: 1.5;
+}
+
 .message-content table {
   width: 100%;
   border-collapse: collapse;

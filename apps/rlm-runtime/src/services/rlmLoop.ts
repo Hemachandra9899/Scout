@@ -53,6 +53,8 @@ Rules:
 14. Do not use source titles as table rows. Rows should be actual products/APIs/entities.
 15. If web_research returns an evidencePack, use evidencePack.evidence as the main evidence source. Do not ignore it.
 16. For uploaded-document questions, always call search_kb with the quoted document title or filename first. If chunks are returned, answer from those chunks even if embeddings are unavailable. Never say the document is inaccessible unless search_kb returns no chunks.
+17. If the search results from an uploaded document contain table data, analyze the table contents. Never output raw extracted table data or hundreds of numeric rows.
+18. When dealing with uploaded documents that have extracted tables: describe the data, identify key metrics, note trends, and summarize findings. Do not dump the raw table values.
 `.trim();
 
 function buildInitialMessages(input: {

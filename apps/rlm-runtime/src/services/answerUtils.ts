@@ -1,5 +1,26 @@
 import type { AnswerSource, RlmStep } from "../types.ts";
 
+export function looksLikeNumericDump(text: string): boolean {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 3) return false;
+
+  const numericLines = lines.filter((l) => {
+    const digits = (l.match(/\d/g) || []).length;
+    return digits > 0 && digits / l.length > 0.2;
+  });
+
+  const currencyValues = (text.match(/[\$€£¥]\s*\d+(?:,\d{3})*(?:\.\d+)?/g) || []).length;
+  const percentages = (text.match(/\d+(?:\.\d+)?%/g) || []).length;
+  const tableRows = (text.match(/^\|.+\|$/gm) || []).length;
+
+  return (
+    (numericLines.length / lines.length) > 0.35 ||
+    currencyValues > 15 ||
+    percentages > 15 ||
+    (tableRows > 20 && numericLines.length / lines.length > 0.25)
+  );
+}
+
 export function isGenericOrRawAnswer(value: unknown): boolean {
   if (value === null || value === undefined) return true;
 
@@ -54,7 +75,11 @@ export function isGenericOrRawAnswer(value: unknown): boolean {
     "'sourceUrl'",
   ];
 
-  return rawMarkers.some((marker) => text.includes(marker));
+  if (rawMarkers.some((marker) => text.includes(marker))) {
+    return true;
+  }
+
+  return looksLikeNumericDump(text);
 }
 
 export function readable(value: unknown): string {

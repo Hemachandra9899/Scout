@@ -22,6 +22,10 @@ export type FactualAnswer = {
 export type DocumentQA = {
   type: "document_qa";
   answer: string;
+  key_points?: string[];
+  insights?: string[];
+  recommendations?: string[];
+  limitations?: string[];
   citations?: { text: string; source: string }[];
 };
 
@@ -58,12 +62,18 @@ Rules:
 - If data is missing, state "Not found in retrieved sources"`,
 
   document_qa: `Output a JSON object with type "document_qa":
-- answer: string (answer based on the uploaded document)
+- answer: string (direct answer based on the uploaded document)
+- key_points: string[] (3-5 main takeaways from the document)
+- insights: string[] (analytical insights beyond surface-level facts)
+- recommendations: string[] (actionable suggestions based on content)
+- limitations: string[] (what the document doesn't cover or caveats)
 - citations: array of { text: string, source: string }
 
 Rules:
 - Only use information from the uploaded documents
-- Cite specific passages when possible`,
+- Never dump raw numeric table values — analyze and summarize them instead
+- Cite specific passages when possible
+- If table headers are unclear from extraction, state that as a limitation`,
 
   research_summary: `Output a JSON object with type "research_summary":
 - summary: string (2-3 sentence overview)
@@ -137,6 +147,42 @@ function renderDocumentQA(output: DocumentQA): string {
 
   lines.push(output.answer);
   lines.push("");
+
+  if (output.key_points && output.key_points.length > 0) {
+    lines.push("### Key Points");
+    lines.push("");
+    for (const point of output.key_points) {
+      lines.push(`- ${point}`);
+    }
+    lines.push("");
+  }
+
+  if (output.insights && output.insights.length > 0) {
+    lines.push("### Insights");
+    lines.push("");
+    for (const insight of output.insights) {
+      lines.push(`- ${insight}`);
+    }
+    lines.push("");
+  }
+
+  if (output.recommendations && output.recommendations.length > 0) {
+    lines.push("### Recommendations");
+    lines.push("");
+    for (const rec of output.recommendations) {
+      lines.push(`- ${rec}`);
+    }
+    lines.push("");
+  }
+
+  if (output.limitations && output.limitations.length > 0) {
+    lines.push("### Limitations");
+    lines.push("");
+    for (const limit of output.limitations) {
+      lines.push(`- ${limit}`);
+    }
+    lines.push("");
+  }
 
   if (output.citations && output.citations.length > 0) {
     lines.push("### Citations");
@@ -223,6 +269,17 @@ export function inferStrategyType(query: string): StrategyType | null {
   const q = query.toLowerCase();
 
   if (
+    q.includes("uploaded document") ||
+    q.includes("this document") ||
+    q.includes("my file") ||
+    q.includes("uploaded file") ||
+    q.includes("the file") ||
+    q.includes("the document")
+  ) {
+    return "document_qa";
+  }
+
+  if (
     q.includes("compare") ||
     q.includes("comparison") ||
     q.includes(" vs ") ||
@@ -239,14 +296,6 @@ export function inferStrategyType(query: string): StrategyType | null {
     q.includes("key findings")
   ) {
     return "research_summary";
-  }
-
-  if (
-    q.includes("uploaded document") ||
-    q.includes("this document") ||
-    q.includes("my file")
-  ) {
-    return "document_qa";
   }
 
   return null;

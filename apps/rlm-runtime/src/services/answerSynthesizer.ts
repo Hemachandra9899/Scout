@@ -1,5 +1,5 @@
 import { ModelClient } from "./modelClient.ts";
-import { readable } from "./answerUtils.ts";
+import { looksLikeNumericDump, readable } from "./answerUtils.ts";
 import type { AnswerSource, ChatMessage, SynthesizedAnswer } from "../types.ts";
 import {
   inferStrategyType,
@@ -24,6 +24,11 @@ Rules:
 8. Columns should match the user request.
 9. Add a short recommendation or next-step plan when useful.
 10. End with "Sources" and list title + URL only.
+11. For uploaded-document questions: analyze and describe table contents. Never dump hundreds of numeric rows.
+12. When the evidence contains extracted tables from PDFs, extract the key metrics, trends, and insights into prose.
+13. Use markdown tables only for summarized metrics/insights (max 15 rows), never raw extracted rows.
+14. When table column headers are unclear from PDF extraction, say so in the answer rather than guessing.
+15. Recommendations should be included only when the user explicitly asks for them.
 `.trim();
 
 function sourceListText(sources: AnswerSource[]): string {
@@ -36,7 +41,7 @@ function sourceListText(sources: AnswerSource[]): string {
     .join("\n");
 }
 
-function looksLikeBadAnswer(answer: string) {
+function looksLikeBadAnswer(answer: string): boolean {
   const lower = answer.toLowerCase();
 
   const variesCount = (lower.match(/\bvaries\b/g) || []).length;
@@ -61,7 +66,9 @@ function looksLikeBadAnswer(answer: string) {
     lower.includes('"final"') ||
     (lower.includes('"type"') && lower.includes('"output"'));
 
-  return variesCount >= 3 || weakSourceRows || hasEmptyTable || hasHallucinatedNumbers || containsJsonDump;
+  const numericDump = looksLikeNumericDump(answer);
+
+  return variesCount >= 3 || weakSourceRows || hasEmptyTable || hasHallucinatedNumbers || containsJsonDump || numericDump;
 }
 
 export class AnswerSynthesizer {
