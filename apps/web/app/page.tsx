@@ -286,7 +286,7 @@ export default function Home() {
         <div className="side-header">
           <div className="brand">
             <h1>Scout</h1>
-            <p>AI Research OS</p>
+            
           </div>
         </div>
 
