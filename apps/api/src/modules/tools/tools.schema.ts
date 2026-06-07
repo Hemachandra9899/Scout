@@ -9,7 +9,12 @@ export const crawlUrlSchema = z.object({
 export const webResearchSchema = z.object({
   projectId: z.string().uuid(),
   query: z.string().min(1),
-  maxResults: z.number().int().min(1).max(5).optional(),
+  maxResults: z.number().int().min(1).max(10).optional(),
+});
+
+export const planResourcesSchema = z.object({
+  query: z.string().min(1),
+  maxResults: z.number().int().min(1).max(10).optional(),
 });
 
 export const searchKbSchema = z.object({
@@ -30,6 +35,7 @@ export const ingestFileSchema = z.object({
 
 export type CrawlUrlInput = z.infer<typeof crawlUrlSchema>;
 export type WebResearchInput = z.infer<typeof webResearchSchema>;
+export type PlanResourcesInput = z.infer<typeof planResourcesSchema>;
 export type SearchKbInput = z.infer<typeof searchKbSchema>;
 export type QueryGraphInput = z.infer<typeof queryGraphSchema>;
 export type IngestFileInput = z.infer<typeof ingestFileSchema>;

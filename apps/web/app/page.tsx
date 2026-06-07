@@ -27,13 +27,30 @@ type Theme = "dark" | "light";
 function isGenericAnswer(value: string) {
   const normalized = value.trim().toLowerCase();
 
-  return [
-    "done",
-    "completed",
-    "all questions have been answered.",
-    "the task is complete.",
-    "task complete",
-  ].includes(normalized);
+  if (
+    [
+      "done",
+      "completed",
+      "all questions have been answered.",
+      "the task is complete.",
+      "task complete",
+    ].includes(normalized)
+  ) {
+    return true;
+  }
+
+  const placeholderPatterns = [
+    "the comparison table",
+    "the table above",
+    "as shown above",
+    "are provided above",
+    "is provided above",
+    "see above",
+    "refer to the",
+    "see the table",
+  ];
+
+  return placeholderPatterns.some((p) => normalized.includes(p));
 }
 
 function extractStdout(job?: ResearchJob) {

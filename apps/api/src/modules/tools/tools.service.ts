@@ -12,6 +12,7 @@ import { searchKnowledgeBase as runKnowledgeSearch } from "@rlm-forge/retrieval"
 import { prisma } from "@rlm-forge/database/prisma.js";
 import type {
   CrawlUrlInput,
+  PlanResourcesInput,
   QueryGraphInput,
   SearchKbInput,
   WebResearchInput,
@@ -64,6 +65,33 @@ export async function searchKnowledgeBase(input: SearchKbInput) {
   };
 }
 
+export async function planResearchResources(input: PlanResourcesInput) {
+  const maxSources = input.maxResults ?? 10;
+
+  const plan = await planResources({
+    query: input.query,
+    maxSources,
+  });
+
+  return {
+    status: "ok",
+    query: input.query,
+    normalizedQuery: plan.normalizedQuery,
+    strategy: plan.strategy,
+    resourcesPlanned: plan.resources.map((resource) => ({
+      title: resource.title,
+      url: resource.url,
+      product: resource.product,
+      domain: resource.domain,
+      tier: resource.tier,
+      source: resource.source,
+      score: resource.score,
+      matchedBy: resource.matchedBy,
+      reason: resource.reason,
+    })),
+  };
+}
+
 export async function webResearch(input: WebResearchInput) {
   const maxSources = input.maxResults ?? 10;
 
@@ -74,6 +102,7 @@ export async function webResearch(input: WebResearchInput) {
 
   const documents = [];
   const evidence = [];
+  const failedScrapes = [];
 
   const scrapeResults = await Promise.allSettled(
     plan.resources.map(async (resource) => {
@@ -109,8 +138,22 @@ export async function webResearch(input: WebResearchInput) {
     })
   );
 
-  for (const result of scrapeResults) {
-    if (result.status !== "fulfilled") continue;
+  for (let index = 0; index < scrapeResults.length; index++) {
+    const result = scrapeResults[index];
+    const plannedResource = plan.resources[index];
+
+    if (result.status !== "fulfilled") {
+      failedScrapes.push({
+        title: plannedResource?.title,
+        url: plannedResource?.url,
+        product: plannedResource?.product,
+        domain: plannedResource?.domain,
+        tier: plannedResource?.tier,
+        reason: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+
+      continue;
+    }
 
     const { resource, scraped, ingested } = result.value;
 
@@ -152,6 +195,7 @@ export async function webResearch(input: WebResearchInput) {
     strategy: plan.strategy,
     resourcesPlanned: plan.resources,
     documents,
+    failedScrapes,
     evidencePack,
     results: evidence,
   };

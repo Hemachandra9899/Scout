@@ -27,6 +27,21 @@ export function isGenericOrRawAnswer(value: unknown): boolean {
     return true;
   }
 
+  const placeholderPatterns = [
+    "the comparison table",
+    "the table above",
+    "as shown above",
+    "are provided above",
+    "is provided above",
+    "see above",
+    "refer to the",
+    "see the table",
+  ];
+
+  if (placeholderPatterns.some((p) => lower.includes(p))) {
+    return true;
+  }
+
   const rawMarkers = [
     "chunkId",
     "documentId",

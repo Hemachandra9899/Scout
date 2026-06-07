@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   crawlUrlSchema,
   ingestFileSchema,
+  planResourcesSchema,
   queryGraphSchema,
   searchKbSchema,
   webResearchSchema,
@@ -9,6 +10,7 @@ import {
 import {
   crawlUrl,
   ingestFile,
+  planResearchResources,
   queryGraph,
   searchKnowledgeBase,
   webResearch,
@@ -19,6 +21,11 @@ export async function toolsRouter(app: FastifyInstance) {
   app.post("/tools/crawl-url", async (req) => {
     const input = crawlUrlSchema.parse(req.body);
     return crawlUrl(input);
+  });
+
+  app.post("/tools/plan-resources", async (req) => {
+    const input = planResourcesSchema.parse(req.body);
+    return planResearchResources(input);
   });
 
   app.post("/tools/web-research", async (req) => {

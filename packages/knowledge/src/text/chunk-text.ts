@@ -20,7 +20,7 @@ export function chunkText(
   }
 ): TextChunk[] {
   const text = cleanMarkdown(input);
-  const chunkSize = options?.chunkSize ?? 1800;
+  const chunkSize = options?.chunkSize ?? 700;
   const overlap = options?.overlap ?? 200;
 
   if (!text) return [];

@@ -29,7 +29,7 @@ def clean_html_to_markdown(html: str) -> str:
 
 def scrape_page(url: str) -> dict:
     page = Fetcher.get(url)
-    html = page.text
+    html = page.html_content
     markdown = clean_html_to_markdown(html)
 
     title = url
