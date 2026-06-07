@@ -23,26 +23,65 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  jobs        ResearchJob[]
-  documents   Document[]
-  agentRuns   AgentRun[]
-  reports     Report[]
+  jobs          ResearchJob[]
+  documents     Document[]
+  agentRuns     AgentRun[]
+  reports       Report[]
+  conversations Conversation[]
+  messages      ChatMessage[]
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  projectId String
+  title     String?
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project  Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+  jobs     ResearchJob[]
+
+  @@index([projectId, updatedAt])
+}
+
+model ChatMessage {
+  id             String        @id @default(uuid())
+  conversationId String
+  projectId      String
+  researchJobId  String?
+  role           String
+  content        String
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  conversation Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  researchJob  ResearchJob?  @relation(fields: [researchJobId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([projectId, createdAt])
 }
 
 model ResearchJob {
-  id        String    @id @default(uuid())
-  projectId String
-  question  String
-  status    JobStatus @default(PENDING)
-  error     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id             String       @id @default(uuid())
+  projectId      String
+  conversationId String?
+  question       String
+  status         JobStatus    @default(PENDING)
+  error          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  agentRuns AgentRun[]
-  reports   Report[]
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  messages     ChatMessage[]
+  agentRuns    AgentRun[]
+  reports      Report[]
 
   @@index([projectId])
+  @@index([conversationId, createdAt])
   @@index([status])
 }
 
@@ -110,14 +149,14 @@ model Relation {
 }
 
 model Claim {
-  id             String   @id @default(uuid())
-  projectId      String
-  claimText      String
+  id              String   @id @default(uuid())
+  projectId       String
+  claimText       String
   evidenceChunkId String?
-  confidence     Float?
-  status         String?
-  metadata       Json     @default("{}")
-  createdAt      DateTime @default(now())
+  confidence      Float?
+  status          String?
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
 
   @@index([projectId])
 }
@@ -134,7 +173,7 @@ model AgentRun {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   job         ResearchJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
   steps       AgentStep[]
 

@@ -26,6 +26,23 @@ export type AgentRun = {
   steps: AgentStep[];
 };
 
+export type ChatMessage = {
+  id: string;
+  role: string;
+  content: string;
+  createdAt: string;
+};
+
+export type Conversation = {
+  id: string;
+  projectId: string;
+  title?: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  messages?: ChatMessage[];
+};
+
 export type Report = {
   id: string;
   title: string;
@@ -37,6 +54,7 @@ export type Report = {
 export type ResearchJob = {
   id: string;
   projectId: string;
+  conversationId?: string | null;
   question: string;
   status: string;
   error?: string | null;
@@ -52,22 +70,6 @@ export type ResearchJobStatus = {
   error?: string | null;
   updatedAt: string;
 };
-
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
-  }
-  return res.json();
-}
 
 export type ProjectDocument = {
   id: string;
@@ -96,28 +98,71 @@ export type IngestFileResponse = {
   markdownPreview: string;
 };
 
+export async function request<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+  }
+  return res.json();
+}
+
 export const api = {
   health: () => request<{ status: string; service: string }>("/health"),
   deps: () => request<Record<string, string>>("/health/deps"),
+
   listProjects: () => request<Project[]>("/projects"),
   createProject: (body: { name: string; description?: string }) =>
-    request<Project>("/projects", { method: "POST", body: JSON.stringify(body) }),
+    request<Project>("/projects", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   listProjectJobs: (projectId: string) =>
     request<ResearchJob[]>(`/projects/${projectId}/jobs`),
-  createResearchJob: (body: { projectId: string; question: string }) =>
-    request<{ jobId: string; queueJobId: string; status: string }>(
-      "/research-jobs", { method: "POST", body: JSON.stringify(body) },
+
+  createResearchJob: (body: {
+    projectId: string;
+    conversationId?: string;
+    question: string;
+  }) =>
+    request<{ jobId: string; conversationId: string; status: string }>(
+      "/research-jobs",
+      { method: "POST", body: JSON.stringify(body) },
     ),
+
   getResearchJob: (jobId: string) =>
     request<ResearchJob>(`/research-jobs/${jobId}`),
+
   getResearchJobStatus: (jobId: string) =>
     request<ResearchJobStatus>(`/research-jobs/${jobId}/status`),
+
+  listProjectConversations: (projectId: string) =>
+    request<Conversation[]>(`/projects/${projectId}/conversations`),
+
+  createConversation: (body: { projectId: string; title?: string }) =>
+    request<Conversation>("/conversations", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getConversation: (id: string) =>
+    request<Conversation>(`/conversations/${id}`),
 
   listProjectDocuments: (projectId: string) =>
     request<ProjectDocument[]>(`/projects/${projectId}/documents`),
 
-  listDocumentChunks: (documentId: string) =>
-    request<any[]>(`/documents/${documentId}/chunks`),
+  listDocumentChunks: (documentId: string) => request<any[]>(`/documents/${documentId}/chunks`),
 
   ingestFile: async (body: {
     projectId: string;

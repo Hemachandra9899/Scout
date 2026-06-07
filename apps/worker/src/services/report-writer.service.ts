@@ -8,6 +8,8 @@ export async function saveResearchResult(input: {
   query: string;
   result: any;
 }) {
+  const answer = extractUserAnswer(input.result);
+
   const step = await prisma.agentStep.create({
     data: {
       runId: input.runId,
@@ -16,8 +18,6 @@ export async function saveResearchResult(input: {
       result: input.result,
     },
   });
-
-  const answer = extractUserAnswer(input.result);
 
   const report = await prisma.report.create({
     data: {
@@ -31,6 +31,31 @@ export async function saveResearchResult(input: {
       },
     },
   });
+
+  const researchJob = await prisma.researchJob.findUnique({
+    where: { id: input.jobId },
+    select: { conversationId: true },
+  });
+
+  if (researchJob?.conversationId) {
+    await prisma.chatMessage.create({
+      data: {
+        projectId: input.projectId,
+        conversationId: researchJob.conversationId,
+        researchJobId: input.jobId,
+        role: "assistant",
+        content: answer,
+        metadata: {
+          sources: Array.isArray(input.result?.sources) ? input.result.sources : [],
+        },
+      },
+    });
+
+    await prisma.conversation.update({
+      where: { id: researchJob.conversationId },
+      data: { updatedAt: new Date() },
+    });
+  }
 
   return { step, report, answer };
 }

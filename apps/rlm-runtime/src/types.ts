@@ -10,6 +10,8 @@ export type ExecuteRequest = {
   maxSteps?: number;
   depth?: number;
   maxDepth?: number;
+  conversationContext?: Array<{ role: string; content: string }>;
+  contextTruncated?: boolean;
 };
 
 export type ModelChatResponse = {
@@ -21,12 +23,12 @@ export type ModelChatResponse = {
 
 export type SubAgentHandler = (
   prompt: string,
-  context?: unknown
+  context?: unknown,
 ) => Promise<unknown>;
 
 export type ToolHandler = (
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
 ) => Promise<unknown>;
 
 export type PythonExecutionResult = {

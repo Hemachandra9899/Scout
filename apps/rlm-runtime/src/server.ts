@@ -50,6 +50,8 @@ Deno.serve({ port: 8787 }, async (req: Request) => {
         maxSteps: body.maxSteps,
         depth: body.depth,
         maxDepth: body.maxDepth,
+        conversationContext: body.conversationContext,
+        contextTruncated: body.contextTruncated,
       });
 
       return json(result);

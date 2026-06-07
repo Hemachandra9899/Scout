@@ -58,7 +58,28 @@ function buildInitialMessages(input: {
   guidance: string;
   depth: number;
   maxDepth: number;
+  conversationContext?: Array<{ role: string; content: string }>;
+  contextTruncated?: boolean;
 }): ChatMessage[] {
+  const preamble: string[] = [
+    input.depth === 0 ? "" : `Depth: ${input.depth}/${input.maxDepth}`,
+    input.guidance || undefined,
+  ].filter(Boolean) as string[];
+
+  const conversationText = input.conversationContext?.length
+    ? [
+        "Recent conversation context:",
+        ...input.conversationContext.map(
+          (m) => `${m.role.toUpperCase()}: ${m.content}`,
+        ),
+        input.contextTruncated
+          ? "Note: older conversation messages were truncated due to context limit."
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : undefined;
+
   return [
     {
       role: "system",
@@ -69,10 +90,8 @@ function buildInitialMessages(input: {
       content: [
         "User task:",
         input.query,
-        "",
-        `Depth: ${input.depth}/${input.maxDepth}`,
-        input.guidance ? "" : undefined,
-        input.guidance || undefined,
+        ...(preamble.length > 0 ? ["", ...preamble] : []),
+        ...(conversationText ? ["", conversationText] : []),
         "",
         "Write the next Python code block.",
       ]
@@ -216,6 +235,8 @@ export class RlmLoop {
       guidance,
       depth,
       maxDepth,
+      conversationContext: req.conversationContext,
+      contextTruncated: req.contextTruncated,
     });
 
     const subAgentHandler: SubAgentHandler = async (prompt, context) => {

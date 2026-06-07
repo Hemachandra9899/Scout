@@ -12,14 +12,15 @@ export function useCreateResearchJob(projectId?: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (question: string) => {
+    mutationFn: (input: { question: string; conversationId?: string }) => {
       if (!projectId) {
         throw new Error("projectId is required");
       }
 
       return api.createResearchJob({
         projectId,
-        question,
+        question: input.question,
+        conversationId: input.conversationId,
       });
     },
     onSuccess: () => {

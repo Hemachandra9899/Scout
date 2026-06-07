@@ -8,6 +8,7 @@ import { projectsRouter } from "./modules/projects/projects.router.js";
 import { researchJobsRouter } from "./modules/research-jobs/research-jobs.router.js";
 import { documentsRouter } from "./modules/documents/documents.router.js";
 import { toolsRouter } from "./modules/tools/tools.router.js";
+import { conversationsRouter } from "./modules/conversations/conversations.router.js";
 
 function createLoggerConfig() {
   const level = process.env.LOG_LEVEL || "info";
@@ -46,6 +47,7 @@ export async function buildApp() {
   await app.register(researchJobsRouter);
   await app.register(documentsRouter);
   await app.register(toolsRouter);
+  await app.register(conversationsRouter);
 
   return app;
 }

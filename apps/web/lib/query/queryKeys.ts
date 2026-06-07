@@ -1,17 +1,11 @@
 export const queryKeys = {
-  healthDeps: ["health", "deps"] as const,
-
   projects: ["projects"] as const,
-
-  projectJobs: (projectId: string) =>
-    ["projects", projectId, "jobs"] as const,
-
+  projectJobs: (projectId: string) => ["project-jobs", projectId] as const,
+  researchJob: (jobId: string) => ["research-job", jobId] as const,
+  researchJobStatus: (jobId: string) => ["research-job-status", jobId] as const,
+  projectConversations: (projectId: string) =>
+    ["project-conversations", projectId] as const,
+  conversation: (id: string) => ["conversation", id] as const,
   projectDocuments: (projectId: string) =>
-    ["projects", projectId, "documents"] as const,
-
-  researchJob: (jobId: string) =>
-    ["research-jobs", jobId] as const,
-
-  researchJobStatus: (jobId: string) =>
-    ["research-jobs", jobId, "status"] as const,
+    ["project-documents", projectId] as const,
 };

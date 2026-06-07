@@ -27,6 +27,7 @@ export async function processResearchJob(job: Job<ResearchJobPayload>) {
       runId: run.id,
       projectId: researchJob.projectId,
       query: researchJob.question,
+      conversationId: researchJob.conversationId ?? undefined,
     });
 
     await saveResearchResult({

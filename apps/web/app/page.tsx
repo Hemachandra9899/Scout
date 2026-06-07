@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, ProjectDocument, ResearchJob } from "../lib/api";
+import { api, Conversation, ProjectDocument, ResearchJob } from "../lib/api";
 import { FileUploadPanel } from "../components/FileUploadPanel";
 import { DocumentsPanel } from "../components/DocumentsPanel";
 import { MessageContent } from "../components/MessageContent";
@@ -11,6 +11,11 @@ import { RunProgress } from "../components/RunProgress";
 import { useProjects, useCreateProject } from "../hooks/useProjects";
 import { useProjectJobs } from "../hooks/useProjectJobs";
 import { useProjectDocuments } from "../hooks/useDocuments";
+import {
+  useProjectConversations,
+  useConversation,
+  useCreateConversation,
+} from "../hooks/useConversations";
 import {
   useCreateResearchJob,
   useResearchJobStatus,
@@ -26,7 +31,6 @@ function isGenericAnswer(value: string) {
     "done",
     "completed",
     "all questions have been answered.",
-    "all questions have been answered",
     "the task is complete.",
     "task complete",
   ].includes(normalized);
@@ -81,14 +85,6 @@ function getSources(job?: ResearchJob) {
   return [];
 }
 
-function newChat(
-  setActiveJobId: (id: string) => void,
-  setQuestion: (q: string) => void
-) {
-  setActiveJobId("");
-  setQuestion("");
-}
-
 function shortId(id: string) {
   return id.slice(0, 8);
 }
@@ -128,10 +124,11 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [devMode, setDevMode] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [activeConversationId, setActiveConversationId] = useState("");
   const [activeJobId, setActiveJobId] = useState("");
   const [projectName, setProjectName] = useState("RLM Research");
   const [question, setQuestion] = useState(
-    "Explain what RLM Forge is in simple words."
+    "Explain what RLM Forge is in simple words.",
   );
   const [error, setError] = useState("");
 
@@ -142,45 +139,40 @@ export default function Home() {
   const { data: projects = [] } = useProjects();
   const { data: jobs = [] } = useProjectJobs(selectedProjectId);
   const { data: documents = [] } = useProjectDocuments(selectedProjectId);
+  const { data: conversations = [] } = useProjectConversations(selectedProjectId);
+  const { data: activeConversation } = useConversation(activeConversationId);
 
   const createProjectMutation = useCreateProject();
   const createResearchJob = useCreateResearchJob(selectedProjectId);
+  const createConversation = useCreateConversation(selectedProjectId);
 
-  const { data: activeJobStatus, isFetching: statusFetching } =
-    useResearchJobStatus(activeJobId);
+  const { data: activeJobStatus } = useResearchJobStatus(activeJobId);
   const shouldFetchFullJob =
     activeJobStatus?.status === "COMPLETED" ||
     activeJobStatus?.status === "FAILED";
-  const { data: activeFullJob } = useResearchJob(
-    activeJobId,
-    shouldFetchFullJob
-  );
+  const { data: activeFullJob } = useResearchJob(activeJobId, shouldFetchFullJob);
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedProjectId),
-    [projects, selectedProjectId]
+    [projects, selectedProjectId],
   );
 
   const activeJob = useMemo(
     () => activeFullJob || jobs.find((j) => j.id === activeJobId),
-    [activeFullJob, jobs, activeJobId]
+    [activeFullJob, jobs, activeJobId],
   );
+
+  const messages = useMemo(() => {
+    return activeConversation?.messages || [];
+  }, [activeConversation]);
 
   const stages = useMemo(() => {
     if (!activeJob) {
-      return {
-        query: false,
-        agent: false,
-        vector: false,
-        rlm: false,
-        output: false,
-        active: "",
-      };
+      return { query: false, agent: false, vector: false, rlm: false, output: false, active: "" };
     }
 
     const status = activeJob.status?.toLowerCase() || "";
     const runsCount = activeJob.agentRuns?.length || 0;
-
     let query = true;
     let agent = false;
     let vector = false;
@@ -193,13 +185,14 @@ export default function Home() {
     } else if (status === "running") {
       agent = true;
       active = "agent";
-
       if (runsCount > 0) {
         vector = true;
         active = "vector";
       }
-
-      const totalSteps = activeJob.agentRuns?.reduce((sum, run) => sum + (run.steps?.length || 0), 0) || 0;
+      const totalSteps = activeJob.agentRuns?.reduce(
+        (sum, run) => sum + (run.steps?.length || 0),
+        0,
+      ) || 0;
       if (totalSteps > 0) {
         rlm = true;
         active = "rlm";
@@ -220,11 +213,41 @@ export default function Home() {
     return { query, agent, vector, rlm, output, active };
   }, [activeJob]);
 
-  function askDocument(doc: ProjectDocument) {
-    const title = doc.title || doc.sourceUrl || "the uploaded document";
-    setQuestion(
-      `Using the uploaded document "${title}", summarize the key points and answer with sources.`
-    );
+  const handleNewChat = useCallback(async () => {
+    if (!selectedProjectId) return;
+    try {
+      const conversation = await createConversation.mutateAsync("New Chat");
+      setActiveConversationId(conversation.id);
+      setActiveJobId("");
+      setQuestion("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [selectedProjectId, createConversation]);
+
+  async function sendMessage(text: string) {
+    if (!text.trim()) return;
+    let pid = selectedProjectId || projects[0]?.id;
+    if (!pid) {
+      setError("Please create or select a project first.");
+      return;
+    }
+    setError("");
+    try {
+      const result = await createResearchJob.mutateAsync({
+        question: text,
+        conversationId: activeConversationId || undefined,
+      });
+      setActiveConversationId(result.conversationId);
+      setActiveJobId(result.jobId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function selectConversation(id: string) {
+    setActiveConversationId(id);
+    setActiveJobId("");
   }
 
   async function createProject() {
@@ -235,24 +258,6 @@ export default function Home() {
         description: "Created from RLM Forge UI",
       });
       setSelectedProjectId(project.id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function generate() {
-    if (!question.trim()) return;
-
-    let pid = selectedProjectId || projects[0]?.id;
-    if (!pid) {
-      setError("Please create or select a project first.");
-      return;
-    }
-
-    setError("");
-    try {
-      const created = await createResearchJob.mutateAsync(question);
-      setActiveJobId(created.jobId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -270,6 +275,7 @@ export default function Home() {
 
   useEffect(() => {
     if (selectedProjectId) {
+      setActiveConversationId("");
       setActiveJobId("");
     }
   }, [selectedProjectId]);
@@ -285,14 +291,8 @@ export default function Home() {
         </div>
 
         <div className="side-content">
-          <button
-            className="primaryButton"
-            onClick={() => {
-              setActiveJobId("");
-              setQuestion("");
-            }}
-          >
-            + New Research
+          <button className="primaryButton" onClick={handleNewChat}>
+            + New Chat
           </button>
 
           <div className="section">
@@ -302,7 +302,11 @@ export default function Home() {
               onChange={(e) => setProjectName(e.target.value)}
               placeholder="Project name"
             />
-            <button className="smallButton" onClick={createProject} style={{ marginTop: "4px" }}>
+            <button
+              className="smallButton"
+              onClick={createProject}
+              style={{ marginTop: "4px" }}
+            >
               Update / Create Project
             </button>
           </div>
@@ -313,7 +317,9 @@ export default function Home() {
               {projects.map((project) => (
                 <button
                   key={project.id}
-                  className={project.id === selectedProjectId ? "item active" : "item"}
+                  className={
+                    project.id === selectedProjectId ? "item active" : "item"
+                  }
                   onClick={() => setSelectedProjectId(project.id)}
                 >
                   <span>{project.name}</span>
@@ -325,13 +331,15 @@ export default function Home() {
 
           {selectedProjectId ? (
             <>
-              <FileUploadPanel
-                projectId={selectedProjectId}
-              />
-
+              <FileUploadPanel projectId={selectedProjectId} />
               <DocumentsPanel
                 documents={documents}
-                onAskDocument={askDocument}
+                onAskDocument={(doc) => {
+                  const title = doc.title || doc.sourceUrl || "the uploaded document";
+                  setQuestion(
+                    `Using the uploaded document "${title}", summarize the key points and answer with sources.`,
+                  );
+                }}
               />
             </>
           ) : null}
@@ -339,17 +347,21 @@ export default function Home() {
           <div className="section" style={{ flex: 1, minHeight: "150px" }}>
             <label>Chat History</label>
             <div className="list" style={{ overflowY: "auto", maxHeight: "250px" }}>
-              {jobs.length === 0 ? (
-                <div style={{ color: "var(--muted)", padding: "4px" }}>No history yet.</div>
+              {conversations.length === 0 ? (
+                <div style={{ color: "var(--muted)", padding: "4px" }}>
+                  No conversations yet.
+                </div>
               ) : (
-                jobs.map((job) => (
+                conversations.map((conv) => (
                   <button
-                    key={job.id}
-                    className={job.id === activeJobId ? "item active" : "item"}
-                    onClick={() => setActiveJobId(job.id)}
+                    key={conv.id}
+                    className={
+                      conv.id === activeConversationId ? "item active" : "item"
+                    }
+                    onClick={() => selectConversation(conv.id)}
                   >
-                    <span>{job.question}</span>
-                    <small>{job.status?.toLowerCase() === "completed" ? "✓" : "⚡"}</small>
+                    <span>{conv.title || "Chat"}</span>
+                    <small>✓</small>
                   </button>
                 ))
               )}
@@ -358,7 +370,11 @@ export default function Home() {
         </div>
 
         <div className="side-footer">
-          <button className="collapse-btn" onClick={() => setSidebarOpen(false)} title="Collapse sidebar">
+          <button
+            className="collapse-btn"
+            onClick={() => setSidebarOpen(false)}
+            title="Collapse sidebar"
+          >
             ◀ Collapse
           </button>
         </div>
@@ -368,17 +384,23 @@ export default function Home() {
         <header className="chatHeader">
           <div className="header-left">
             {!sidebarOpen && (
-              <button className="menu-toggle" onClick={() => setSidebarOpen(true)} title="Expand sidebar">
+              <button
+                className="menu-toggle"
+                onClick={() => setSidebarOpen(true)}
+                title="Expand sidebar"
+              >
                 ☰
               </button>
             )}
             <div className="header-title">
               <p>{selectedProject?.name || "No project selected"}</p>
-              <h2>{activeJob ? "Research Session" : "RLM Forge Playground"}</h2>
+              <h2>
+                {activeConversationId ? "Chat" : "RLM Forge Playground"}
+              </h2>
             </div>
             <button
               className="newChatButton"
-              onClick={() => newChat(setActiveJobId, setQuestion)}
+              onClick={handleNewChat}
               title="Start a new chat"
             >
               + New Chat
@@ -386,7 +408,9 @@ export default function Home() {
           </div>
 
           <div className="mode-toggle-container">
-            <span className={`mode-label ${!devMode ? "active" : ""}`}>Chat</span>
+            <span className={`mode-label ${!devMode ? "active" : ""}`}>
+              Chat
+            </span>
             <div
               className={`mode-switch ${devMode ? "active" : ""}`}
               onClick={() => setDevMode(!devMode)}
@@ -396,7 +420,9 @@ export default function Home() {
                 {devMode ? "</>" : "💬"}
               </div>
             </div>
-            <span className={`mode-label ${devMode ? "active" : ""}`}>Dev</span>
+            <span className={`mode-label ${devMode ? "active" : ""}`}>
+              Dev
+            </span>
           </div>
 
           <div className="header-right">
@@ -414,7 +440,9 @@ export default function Home() {
             </div>
             <button
               className="theme-toggle-btn"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              onClick={() =>
+                setTheme(theme === "dark" ? "light" : "dark")
+              }
             >
               {theme === "dark" ? "☀ Light" : "☾ Dark"}
             </button>
@@ -425,86 +453,138 @@ export default function Home() {
           <div className="workspace-left">
             {!devMode ? (
               <section className="messages-wrapper">
-                {activeJob ? (
+                {messages.length > 0 ? (
                   <div className="messages">
-                    <div className="bubble user">
-                      <b>You</b>
-                      <p>{activeJob.question}</p>
-                    </div>
-                    <div className="bubble assistant">
-                      <b>RLM Forge</b>
-                      <RunProgress status={activeJob.status} />
-                      {["completed", "failed"].includes(activeJob.status?.toLowerCase()) ? (
-                        <>
-                          <MessageContent content={answerText(activeJob)} />
-                          <SourcesPanel sources={getSources(activeJob)} />
-                          {activeJob.agentRuns?.length ? (
-                            <details className="trace-details">
-                              <summary>Trace Logs ({activeJob.agentRuns.length} runs)</summary>
-                              <pre className="trace-pre">{JSON.stringify(activeJob.agentRuns, null, 2)}</pre>
-                            </details>
-                          ) : null}
-                        </>
-                      ) : (
-                        <p className="answerText text-muted">
-                          {statusFetching ? "Waiting for answer..." : "Running research..."}
-                        </p>
-                      )}
-                    </div>
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`bubble ${msg.role === "user" ? "user" : "assistant"}`}
+                      >
+                        <b>{msg.role === "user" ? "You" : "RLM Forge"}</b>
+                        <p>{msg.content}</p>
+                      </div>
+                    ))}
+                    {activeJob && !["completed", "failed"].includes(activeJob.status?.toLowerCase() || "") && (
+                      <div className="bubble assistant">
+                        <b>RLM Forge</b>
+                        <RunProgress status={activeJob.status} />
+                        <p className="answerText text-muted">Running research...</p>
+                      </div>
+                    )}
+                    {activeJob && ["completed", "failed"].includes(activeJob.status?.toLowerCase() || "") && (
+                      <div className="bubble assistant">
+                        <b>RLM Forge</b>
+                        <MessageContent content={answerText(activeJob)} />
+                        <SourcesPanel sources={getSources(activeJob)} />
+                        {activeJob.agentRuns?.length ? (
+                          <details className="trace-details">
+                            <summary>
+                              Trace Logs ({activeJob.agentRuns.length} runs)
+                            </summary>
+                            <pre className="trace-pre">
+                              {JSON.stringify(activeJob.agentRuns, null, 2)}
+                            </pre>
+                          </details>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="welcome-dashboard">
                     <div className="welcome-logo">RLM FORGE</div>
-                    <div className="welcome-subtitle">API, Docs and Recursive AI Research Engine</div>
-
+                    <div className="welcome-subtitle">
+                      API, Docs and Recursive AI Research Engine
+                    </div>
                     <div className="presets-container">
                       <button
                         className="preset-pill"
-                        onClick={() => setQuestion("Deep search recursive runtime logs")}
+                        onClick={() =>
+                          setQuestion(
+                            "Deep search recursive runtime logs",
+                          )
+                        }
                       >
                         Search
                       </button>
                       <button
                         className="preset-pill"
-                        onClick={() => setQuestion("Extract structured entities from data sources")}
+                        onClick={() =>
+                          setQuestion(
+                            "Extract structured entities from data sources",
+                          )
+                        }
                       >
                         Extract
                       </button>
                       <button
                         className="preset-pill"
-                        onClick={() => setQuestion("Crawl nested API documentations recursively")}
+                        onClick={() =>
+                          setQuestion(
+                            "Crawl nested API documentations recursively",
+                          )
+                        }
                       >
                         Crawl
                       </button>
                     </div>
                   </div>
                 )}
-                {error ? <div className="messages"><div className="error-message">{error}</div></div> : null}
+                {error ? (
+                  <div className="messages">
+                    <div className="error-message">{error}</div>
+                  </div>
+                ) : null}
               </section>
             ) : (
               <div className="workflow-canvas">
                 {createResearchJob.isPending && (
                   <>
-                    <div className="cloud-code-particle" style={{ left: "42%", animationDelay: "0s" }}>
+                    <div
+                      className="cloud-code-particle"
+                      style={{ left: "42%", animationDelay: "0s" }}
+                    >
                       {"const rlm = new RLM()"}
                     </div>
-                    <div className="cloud-code-particle" style={{ left: "56%", animationDelay: "1.5s" }}>
+                    <div
+                      className="cloud-code-particle"
+                      style={{ left: "56%", animationDelay: "1.5s" }}
+                    >
                       {"qdrant.query({ text })"}
                     </div>
-                    <div className="cloud-code-particle" style={{ left: "48%", animationDelay: "3s" }}>
+                    <div
+                      className="cloud-code-particle"
+                      style={{ left: "48%", animationDelay: "3s" }}
+                    >
                       {"redis.set(cache_key)"}
                     </div>
-                    <div className="cloud-code-particle" style={{ left: "52%", animationDelay: "4.5s" }}>
+                    <div
+                      className="cloud-code-particle"
+                      style={{ left: "52%", animationDelay: "4.5s" }}
+                    >
                       {"agent.reason(task)"}
                     </div>
                   </>
                 )}
 
                 <div className="workflow-nodes">
-                  <div className={`flow-card-wrapper ${stages.output ? "visible" : ""}`}>
-                    <div className={`flow-card ${stages.active === "output" ? "active" : ""}`}>
-                      <div className="flow-card-icon" style={{ backgroundColor: "var(--lime)" }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5">
+                  <div
+                    className={`flow-card-wrapper ${stages.output ? "visible" : ""}`}
+                  >
+                    <div
+                      className={`flow-card ${stages.active === "output" ? "active" : ""}`}
+                    >
+                      <div
+                        className="flow-card-icon"
+                        style={{ backgroundColor: "var(--lime)" }}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#000"
+                          strokeWidth="2.5"
+                        >
                           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                           <polyline points="14 2 14 8 20 8" />
                           <line x1="16" y1="13" x2="8" y2="13" />
@@ -513,10 +593,15 @@ export default function Home() {
                       </div>
                       <div className="flow-card-body">
                         <div className="flow-card-title">OUTPUT REPORT</div>
-                        <div className="flow-card-desc">Final Knowledge Summary</div>
+                        <div className="flow-card-desc">
+                          Final Knowledge Summary
+                        </div>
                       </div>
                       {stages.active === "output" && (
-                        <div className="flow-card-tag" style={{ backgroundColor: "var(--lime)" }}>
+                        <div
+                          className="flow-card-tag"
+                          style={{ backgroundColor: "var(--lime)" }}
+                        >
                           Completed
                         </div>
                       )}
@@ -525,19 +610,38 @@ export default function Home() {
 
                   {stages.output && <div className="flow-connector" />}
 
-                  <div className={`flow-card-wrapper ${stages.rlm ? "visible" : ""}`}>
-                    <div className={`flow-card ${stages.active === "rlm" ? "active" : ""}`}>
-                      <div className="flow-card-icon" style={{ backgroundColor: "var(--pink)" }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5">
+                  <div
+                    className={`flow-card-wrapper ${stages.rlm ? "visible" : ""}`}
+                  >
+                    <div
+                      className={`flow-card ${stages.active === "rlm" ? "active" : ""}`}
+                    >
+                      <div
+                        className="flow-card-icon"
+                        style={{ backgroundColor: "var(--pink)" }}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#000"
+                          strokeWidth="2.5"
+                        >
                           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                         </svg>
                       </div>
                       <div className="flow-card-body">
                         <div className="flow-card-title">RLM RUNTIME</div>
-                        <div className="flow-card-desc">Recursive Execution Loop</div>
+                        <div className="flow-card-desc">
+                          Recursive Execution Loop
+                        </div>
                       </div>
                       {stages.active === "rlm" && (
-                        <div className="flow-card-tag" style={{ backgroundColor: "var(--pink)" }}>
+                        <div
+                          className="flow-card-tag"
+                          style={{ backgroundColor: "var(--pink)" }}
+                        >
                           RLM Loop
                         </div>
                       )}
@@ -546,21 +650,42 @@ export default function Home() {
 
                   {stages.rlm && <div className="flow-connector" />}
 
-                  <div className={`flow-card-wrapper ${stages.vector ? "visible" : ""}`}>
-                    <div className={`flow-card ${stages.active === "vector" ? "active" : ""}`}>
-                      <div className="flow-card-icon" style={{ backgroundColor: "var(--orange)" }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5">
+                  <div
+                    className={`flow-card-wrapper ${stages.vector ? "visible" : ""}`}
+                  >
+                    <div
+                      className={`flow-card ${stages.active === "vector" ? "active" : ""}`}
+                    >
+                      <div
+                        className="flow-card-icon"
+                        style={{ backgroundColor: "var(--orange)" }}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#000"
+                          strokeWidth="2.5"
+                        >
                           <ellipse cx="12" cy="5" rx="9" ry="3" />
                           <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                           <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
                         </svg>
                       </div>
                       <div className="flow-card-body">
-                        <div className="flow-card-title">VECTOR RETRIEVE</div>
-                        <div className="flow-card-desc">Qdrant DB & Cache Query</div>
+                        <div className="flow-card-title">
+                          VECTOR RETRIEVE
+                        </div>
+                        <div className="flow-card-desc">
+                          Qdrant DB & Cache Query
+                        </div>
                       </div>
                       {stages.active === "vector" && (
-                        <div className="flow-card-tag" style={{ backgroundColor: "var(--orange)" }}>
+                        <div
+                          className="flow-card-tag"
+                          style={{ backgroundColor: "var(--orange)" }}
+                        >
                           DB Fetching
                         </div>
                       )}
@@ -569,20 +694,41 @@ export default function Home() {
 
                   {stages.vector && <div className="flow-connector" />}
 
-                  <div className={`flow-card-wrapper ${stages.agent ? "visible" : ""}`}>
-                    <div className={`flow-card ${stages.active === "agent" ? "active" : ""}`}>
-                      <div className="flow-card-icon" style={{ backgroundColor: "var(--cyan)" }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5">
+                  <div
+                    className={`flow-card-wrapper ${stages.agent ? "visible" : ""}`}
+                  >
+                    <div
+                      className={`flow-card ${stages.active === "agent" ? "active" : ""}`}
+                    >
+                      <div
+                        className="flow-card-icon"
+                        style={{ backgroundColor: "var(--cyan)" }}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#000"
+                          strokeWidth="2.5"
+                        >
                           <circle cx="12" cy="12" r="3" />
                           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                         </svg>
                       </div>
                       <div className="flow-card-body">
-                        <div className="flow-card-title">AGENT PLANNER</div>
-                        <div className="flow-card-desc">Reasoning Task Planning</div>
+                        <div className="flow-card-title">
+                          AGENT PLANNER
+                        </div>
+                        <div className="flow-card-desc">
+                          Reasoning Task Planning
+                        </div>
                       </div>
                       {stages.active === "agent" && (
-                        <div className="flow-card-tag" style={{ backgroundColor: "var(--cyan)" }}>
+                        <div
+                          className="flow-card-tag"
+                          style={{ backgroundColor: "var(--cyan)" }}
+                        >
                           Agent Planning
                         </div>
                       )}
@@ -591,19 +737,41 @@ export default function Home() {
 
                   {stages.agent && <div className="flow-connector" />}
 
-                  <div className={`flow-card-wrapper ${stages.query ? "visible" : ""}`}>
-                    <div className={`flow-card ${stages.active === "query" ? "active" : ""}`}>
-                      <div className="flow-card-icon" style={{ backgroundColor: "var(--lime)" }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5">
+                  <div
+                    className={`flow-card-wrapper ${stages.query ? "visible" : ""}`}
+                  >
+                    <div
+                      className={`flow-card ${stages.active === "query" ? "active" : ""}`}
+                    >
+                      <div
+                        className="flow-card-icon"
+                        style={{ backgroundColor: "var(--lime)" }}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#000"
+                          strokeWidth="2.5"
+                        >
                           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                         </svg>
                       </div>
                       <div className="flow-card-body">
                         <div className="flow-card-title">QUERY INPUT</div>
-                        <div className="flow-card-desc">{activeJob ? activeJob.question.slice(0, 25) + (activeJob.question.length > 25 ? "..." : "") : "Idle"}</div>
+                        <div className="flow-card-desc">
+                          {activeJob
+                            ? activeJob.question.slice(0, 25) +
+                              (activeJob.question.length > 25 ? "..." : "")
+                            : "Idle"}
+                        </div>
                       </div>
                       {stages.active === "query" && (
-                        <div className="flow-card-tag" style={{ backgroundColor: "var(--lime)" }}>
+                        <div
+                          className="flow-card-tag"
+                          style={{ backgroundColor: "var(--lime)" }}
+                        >
                           User Query
                         </div>
                       )}
@@ -622,19 +790,32 @@ export default function Home() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      generate();
+                      sendMessage(question);
                     }
                   }}
                 />
                 <div className="composer-actions">
                   <div className="composer-left-actions">
-                    <button className="composer-btn" title="Attach Files">📎</button>
-                    <button className="composer-btn" title="Clear input" onClick={() => setQuestion("")}>✕</button>
+                    <button
+                      className="composer-btn"
+                      title="Attach Files"
+                    >
+                      📎
+                    </button>
+                    <button
+                      className="composer-btn"
+                      title="Clear input"
+                      onClick={() => setQuestion("")}
+                    >
+                      ✕
+                    </button>
                   </div>
                   <button
                     className="generate-btn"
-                    onClick={generate}
-                    disabled={createResearchJob.isPending || !question.trim()}
+                    onClick={() => sendMessage(question)}
+                    disabled={
+                      createResearchJob.isPending || !question.trim()
+                    }
                   >
                     {createResearchJob.isPending ? "Running..." : "Generate"}
                   </button>
@@ -647,7 +828,13 @@ export default function Home() {
             <div className="dev-console-panel">
               <div className="console-header">
                 <h3>Console Sandbox Trace</h3>
-                <span style={{ color: "var(--lime)", fontFamily: "var(--font-pixel)", fontSize: "14px" }}>
+                <span
+                  style={{
+                    color: "var(--lime)",
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: "14px",
+                  }}
+                >
                   {activeJob ? activeJob.status : "Idle"}
                 </span>
               </div>
@@ -657,46 +844,77 @@ export default function Home() {
                     <div className="console-line">
                       <span className="timestamp">[00:01]</span>
                       <span className="tag">[SYSTEM]</span>
-                      <span>Initialized research sandbox session: {shortId(activeJob.id)}</span>
+                      <span>
+                        Initialized research sandbox session:{" "}
+                        {shortId(activeJob.id)}
+                      </span>
                     </div>
                     <div className="console-line">
                       <span className="timestamp">[00:02]</span>
                       <span className="tag">[SANDBOX]</span>
-                      <span>Running RLM executive with prompt input.</span>
+                      <span>
+                        Running RLM executive with prompt input.
+                      </span>
                     </div>
                     {activeJob.agentRuns?.map((run, idx) => (
                       <div key={run.id} className="console-line">
-                        <span className="timestamp">[00:{idx + 3}]</span>
+                        <span className="timestamp">
+                          [00:{idx + 3}]
+                        </span>
                         <span className="tag">[AGENT_RUN]</span>
-                        <span>Depth {run.depth}: status={run.status}, query="{run.query}"</span>
+                        <span>
+                          Depth {run.depth}: status={run.status}, query="
+                          {run.query}"
+                        </span>
                         {run.steps?.map((step) => (
-                          <div key={step.id} style={{ paddingLeft: "12px", color: "var(--orange)" }}>
-                            <span>Step {step.stepIndex}: {step.stdout || "Evaluating step..."}</span>
+                          <div
+                            key={step.id}
+                            style={{
+                              paddingLeft: "12px",
+                              color: "var(--orange)",
+                            }}
+                          >
+                            <span>
+                              Step {step.stepIndex}:{" "}
+                              {step.stdout || "Evaluating step..."}
+                            </span>
                           </div>
                         ))}
                       </div>
                     ))}
                     {activeJob.error && (
-                      <div className="console-line" style={{ color: "var(--bad)" }}>
+                      <div
+                        className="console-line"
+                        style={{ color: "var(--bad)" }}
+                      >
                         <span className="timestamp">[ERR]</span>
                         <span>{activeJob.error}</span>
                       </div>
                     )}
                     {activeJob.status?.toLowerCase() === "completed" && (
                       <>
-                        <div className="console-line" style={{ color: "var(--lime)" }}>
+                        <div
+                          className="console-line"
+                          style={{ color: "var(--lime)" }}
+                        >
                           <span className="timestamp">[DONE]</span>
                           <span>Report generated successfully!</span>
                         </div>
                         <div className="console-answer-section">
-                          <div className="console-answer-header">&gt; FINAL REPORT OUTPUT:</div>
-                          <TypewriterText text={answerText(activeJob)} />
+                          <div className="console-answer-header">
+                            &gt; FINAL REPORT OUTPUT:
+                          </div>
+                          <TypewriterText
+                            text={answerText(activeJob)}
+                          />
                         </div>
                       </>
                     )}
                   </>
                 ) : (
-                  <div className="muted">Waiting for research sandbox query...</div>
+                  <div className="muted">
+                    Waiting for research sandbox query...
+                  </div>
                 )}
               </div>
             </div>

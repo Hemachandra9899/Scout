@@ -24,6 +24,23 @@ export type AgentRun = {
   steps: AgentStep[];
 };
 
+export type ChatMessage = {
+  id: string;
+  role: string;
+  content: string;
+  createdAt: string;
+};
+
+export type Conversation = {
+  id: string;
+  projectId: string;
+  title?: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  messages?: ChatMessage[];
+};
+
 export type Report = {
   id: string;
   title: string;
@@ -35,6 +52,7 @@ export type Report = {
 export type ResearchJob = {
   id: string;
   projectId: string;
+  conversationId?: string | null;
   question: string;
   status: string;
   error?: string | null;
@@ -42,4 +60,11 @@ export type ResearchJob = {
   updatedAt: string;
   reports?: Report[];
   agentRuns?: AgentRun[];
+};
+
+export type ResearchJobStatus = {
+  id: string;
+  status: string;
+  error?: string | null;
+  updatedAt: string;
 };
