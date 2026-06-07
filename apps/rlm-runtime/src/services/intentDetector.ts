@@ -71,7 +71,7 @@ export class IntentDetector {
       {
         role: "system",
         content: `
-You are the RLM Forge intent detector.
+You are the Scout intent detector.
 
 Return JSON only.
 

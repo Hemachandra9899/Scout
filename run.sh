@@ -52,7 +52,7 @@ run_bg() {
 export $(grep -v '^#' .env | xargs)
 export API_URL="http://localhost:8000"
 
-log "ROOT" "Starting RLM Forge..."
+log "ROOT" "Starting Scout..."
 
 # Redis
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^rlm-forge-redis$'; then

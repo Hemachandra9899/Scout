@@ -21,7 +21,7 @@ const DEFAULT_MAX_STEPS = 5;
 const DEFAULT_MAX_DEPTH = 2;
 
 const SYSTEM_PROMPT = `
-You are RLM Forge's async Python executor.
+You are Scout's async Python executor.
 
 Return executable Python code only. No markdown wrappers. No explanations.
 
@@ -51,6 +51,7 @@ Rules:
 12. Treat "mets graph api" as "Meta Graph API". For Meta ads, research "Meta Graph API Marketing API ads platform endpoints".
 13. For API comparison questions, use official docs first and ignore weak sources like YouTube, Postman unless official docs are unavailable.
 14. Do not use source titles as table rows. Rows should be actual products/APIs/entities.
+15. If web_research returns an evidencePack, use evidencePack.evidence as the main evidence source. Do not ignore it.
 `.trim();
 
 function buildInitialMessages(input: {

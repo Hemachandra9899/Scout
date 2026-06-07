@@ -36,7 +36,7 @@ export default function Sidebar({
           <span />
         </div>
         <div>
-          <h1>RLM Forge</h1>
+          <h1>Scout</h1>
           <p>Recursive Research OS</p>
         </div>
       </div>

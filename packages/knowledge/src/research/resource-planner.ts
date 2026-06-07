@@ -1,100 +1,53 @@
-import { DOC_REGISTRY, type DocTarget } from "../registry/doc-registry.js";
-import { filterAndRankSources } from "./source-quality.js";
+import { DOC_REGISTRY } from "../registry/doc-registry.js";
+import type { RankedResource, ResourceCandidate } from "./source-types.js";
+import { buildFallbackSearchQueries, normalizeResearchQuery } from "./query-builder.js";
+import { rankResourceCandidates } from "./source-ranker.js";
+import { searchResourceCandidates } from "./search-provider.js";
 
-export type PlannedResource = DocTarget & {
-  matchedScore: number;
-  matchedBy: string[];
-};
+export async function planResources(input: {
+  query: string;
+  maxSources?: number;
+}): Promise<{
+  normalizedQuery: string;
+  strategy: "registry_first" | "search_fallback" | "mixed";
+  resources: RankedResource[];
+}> {
+  const normalizedQuery = normalizeResearchQuery(input.query);
+  const maxSources = input.maxSources ?? 10;
 
-export function normalizeResearchQuery(query: string): string {
-  return query
-    .replace(/\bmets\s+graph\s+api\b/gi, "Meta Graph API")
-    .replace(/\bmeta\s+ads\s+api\b/gi, "Meta Marketing API")
-    .replace(/\bfacebook\s+ads\s+api\b/gi, "Meta Marketing API")
-    .trim();
-}
-
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9.+#\s-]/g, " ")
-    .split(/\s+/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-function phraseMatch(query: string, phrase: string) {
-  return query.toLowerCase().includes(phrase.toLowerCase());
-}
-
-function scoreTarget(query: string, target: DocTarget): PlannedResource | null {
-  const q = query.toLowerCase();
-  const queryTokens = new Set(tokenize(query));
-
-  let score = 0;
-  const matchedBy: string[] = [];
-
-  for (const keyword of target.keywords) {
-    if (phraseMatch(q, keyword)) {
-      score += 25;
-      matchedBy.push(`keyword:${keyword}`);
+  const registryResources = rankResourceCandidates(
+    normalizedQuery,
+    DOC_REGISTRY,
+    {
+      maxSources,
+      minScore: 45,
     }
+  );
+
+  if (registryResources.length >= Math.min(3, maxSources)) {
+    return {
+      normalizedQuery,
+      strategy: "registry_first",
+      resources: registryResources,
+    };
   }
 
-  for (const topic of target.topics) {
-    if (phraseMatch(q, topic)) {
-      score += 15;
-      matchedBy.push(`topic:${topic}`);
-    }
+  const fallbackQueries = buildFallbackSearchQueries(normalizedQuery);
+  const searchCandidates: ResourceCandidate[] = [];
+
+  for (const query of fallbackQueries) {
+    const results = await searchResourceCandidates(query, 5);
+    searchCandidates.push(...results);
   }
 
-  for (const token of tokenize(target.product)) {
-    if (queryTokens.has(token)) {
-      score += 8;
-      matchedBy.push(`product-token:${token}`);
-    }
-  }
-
-  if (phraseMatch(q, target.domain)) {
-    score += 10;
-    matchedBy.push(`domain:${target.domain}`);
-  }
-
-  score += Math.min(target.priority / 10, 10);
-
-  if (matchedBy.length === 0) return null;
+  const combined = [...registryResources, ...searchCandidates];
 
   return {
-    ...target,
-    matchedScore: score,
-    matchedBy,
+    normalizedQuery,
+    strategy: registryResources.length > 0 ? "mixed" : "search_fallback",
+    resources: rankResourceCandidates(normalizedQuery, combined, {
+      maxSources,
+      minScore: 25,
+    }),
   };
-}
-
-export function planResources(query: string, maxResults = 10): PlannedResource[] {
-  const normalizedQuery = normalizeResearchQuery(query);
-
-  const matched = DOC_REGISTRY
-    .map((target) => scoreTarget(normalizedQuery, target))
-    .filter(Boolean) as PlannedResource[];
-
-  const ranked = matched.sort((a, b) => b.matchedScore - a.matchedScore);
-
-  const deduped: PlannedResource[] = [];
-  const seen = new Set<string>();
-
-  for (const item of ranked) {
-    if (seen.has(item.url)) continue;
-    seen.add(item.url);
-    deduped.push(item);
-  }
-
-  return filterAndRankSources(deduped, normalizedQuery, {
-    minScore: 30,
-    maxSources: maxResults,
-  });
-}
-
-export function hasPlannedResources(query: string) {
-  return planResources(query, 1).length > 0;
 }

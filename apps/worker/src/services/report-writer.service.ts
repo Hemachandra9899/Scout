@@ -23,7 +23,7 @@ export async function saveResearchResult(input: {
     data: {
       projectId: input.projectId,
       jobId: input.jobId,
-      title: "RLM Answer",
+      title: "Scout Answer",
       content: answer,
       metadata: {
         result: input.result,

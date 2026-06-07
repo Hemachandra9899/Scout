@@ -1,4 +1,4 @@
-# RLM Forge Agent Rules
+# Scout Agent Rules
 
 ## Operating Mode
 

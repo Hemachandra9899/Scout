@@ -1,5 +1,5 @@
 import {
-  filterAndRankSources,
+  buildEvidencePack,
   ingestMarkdownDocument,
   normalizeResearchQuery,
   planResources,
@@ -54,128 +54,106 @@ export async function searchKnowledgeBase(input: SearchKbInput) {
     topK: input.topK ?? 10,
   });
 
-  const rankedResults = filterAndRankSources(
-    (search.results || []).map((result: any) => ({
-      ...result,
-      url: result.sourceUrl || result.url,
-    })),
-    normalizedQuery,
-    {
-      minScore: 25,
-      maxSources: input.topK ?? 10,
-    },
-  );
-
   return {
     status: "ok",
     query: input.query,
     normalizedQuery,
     retrieval: search.retrieval,
     retrievalError: search.error,
-    results: rankedResults,
+    results: search.results,
   };
 }
 
 export async function webResearch(input: WebResearchInput) {
-  const normalizedQuery = normalizeResearchQuery(input.query);
-  const maxResults = input.maxResults ?? 10;
+  const maxSources = input.maxResults ?? 10;
 
-  const plannedResources = planResources(normalizedQuery, maxResults);
+  const plan = await planResources({
+    query: input.query,
+    maxSources,
+  });
 
   const documents = [];
-  const results = [];
+  const evidence = [];
 
-  for (const target of plannedResources) {
-    try {
-      const scraped = await scrapePageWithScrapling(target.url);
+  const scrapeResults = await Promise.allSettled(
+    plan.resources.map(async (resource) => {
+      const scraped = await scrapePageWithScrapling(resource.url);
 
       if (!scraped.markdown || scraped.markdown.trim().length < 250) {
-        results.push({
-          title: target.title,
-          url: target.url,
-          product: target.product,
-          domain: target.domain,
-          tier: target.tier,
-          sourceType: "registry_resource",
-          error: "Scraped markdown was too short.",
-        });
-        continue;
+        throw new Error("Scraped markdown was too short.");
       }
 
       const ingested = await ingestMarkdownDocument({
         projectId: input.projectId,
         sourceUrl: scraped.url,
-        title: scraped.title || target.title,
+        title: scraped.title || resource.title,
         markdown: scraped.markdown,
         metadata: {
           provider: "scrapling",
-          sourceType: "registry_resource",
-          registryId: target.id,
-          product: target.product,
-          domain: target.domain,
-          tier: target.tier,
-          topics: target.topics,
-          matchedScore: target.matchedScore,
-          matchedBy: target.matchedBy,
-          normalizedQuery,
+          sourceType: resource.source,
+          product: resource.product,
+          domain: resource.domain,
+          tier: resource.tier,
+          topics: resource.topics || [],
+          matchedScore: resource.score,
+          matchedBy: resource.matchedBy,
+          normalizedQuery: plan.normalizedQuery,
         },
       });
 
-      documents.push({
-        documentId: ingested.document.id,
-        title: scraped.title || target.title,
-        url: scraped.url,
-        product: target.product,
-        domain: target.domain,
-        tier: target.tier,
-        sourceType: "registry_resource",
-        chunksTotal: ingested.chunksTotal,
-        embeddedChunks: ingested.embeddedChunks,
-        embeddingError: ingested.embeddingError,
-        deduped: ingested.deduped,
-      });
+      return {
+        resource,
+        scraped,
+        ingested,
+      };
+    })
+  );
 
-      results.push({
-        title: scraped.title || target.title,
-        url: scraped.url,
-        product: target.product,
-        domain: target.domain,
-        tier: target.tier,
-        sourceType: "registry_resource",
-        text: preview(scraped.markdown, 1500),
-      });
-    } catch (error) {
-      results.push({
-        title: target.title,
-        url: target.url,
-        product: target.product,
-        domain: target.domain,
-        tier: target.tier,
-        sourceType: "registry_resource",
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  for (const result of scrapeResults) {
+    if (result.status !== "fulfilled") continue;
+
+    const { resource, scraped, ingested } = result.value;
+
+    documents.push({
+      documentId: ingested.document.id,
+      title: scraped.title || resource.title,
+      url: scraped.url,
+      product: resource.product,
+      domain: resource.domain,
+      tier: resource.tier,
+      sourceType: resource.source,
+      chunksTotal: ingested.chunksTotal,
+      embeddedChunks: ingested.embeddedChunks,
+      embeddingError: ingested.embeddingError,
+      deduped: ingested.deduped,
+    });
+
+    evidence.push({
+      title: scraped.title || resource.title,
+      url: scraped.url,
+      product: resource.product,
+      domain: resource.domain,
+      tier: resource.tier,
+      text: preview(scraped.markdown, 1800),
+      reason: resource.reason,
+    });
   }
+
+  const evidencePack = buildEvidencePack({
+    query: input.query,
+    resourcesPlanned: plan.resources,
+    evidence,
+  });
 
   return {
     status: "ok",
     query: input.query,
-    normalizedQuery,
-    strategy: plannedResources.length > 0
-      ? "doc_registry_scrapling"
-      : "no_registry_match",
-    resourcesPlanned: plannedResources.map((resource) => ({
-      id: resource.id,
-      product: resource.product,
-      title: resource.title,
-      url: resource.url,
-      domain: resource.domain,
-      tier: resource.tier,
-      matchedScore: resource.matchedScore,
-      matchedBy: resource.matchedBy,
-    })),
+    normalizedQuery: plan.normalizedQuery,
+    strategy: plan.strategy,
+    resourcesPlanned: plan.resources,
     documents,
-    results,
+    evidencePack,
+    results: evidence,
   };
 }
 

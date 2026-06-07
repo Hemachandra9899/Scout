@@ -126,9 +126,9 @@ export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [activeConversationId, setActiveConversationId] = useState("");
   const [activeJobId, setActiveJobId] = useState("");
-  const [projectName, setProjectName] = useState("RLM Research");
+  const [projectName, setProjectName] = useState("Scout");
   const [question, setQuestion] = useState(
-    "Explain what RLM Forge is in simple words.",
+    "Explain what Scout is in simple words.",
   );
   const [error, setError] = useState("");
 
@@ -255,7 +255,7 @@ export default function Home() {
     try {
       const project = await createProjectMutation.mutateAsync({
         name: projectName || "Untitled Project",
-        description: "Created from RLM Forge UI",
+        description: "Created from Scout UI",
       });
       setSelectedProjectId(project.id);
     } catch (e) {
@@ -285,7 +285,7 @@ export default function Home() {
       <aside className={`side ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="side-header">
           <div className="brand">
-            <h1>RLM Forge</h1>
+            <h1>Scout</h1>
             <p>AI Research OS</p>
           </div>
         </div>
@@ -395,7 +395,7 @@ export default function Home() {
             <div className="header-title">
               <p>{selectedProject?.name || "No project selected"}</p>
               <h2>
-                {activeConversationId ? "Chat" : "RLM Forge Playground"}
+                {activeConversationId ? "Chat" : "Scout Playground"}
               </h2>
             </div>
             <button
@@ -460,20 +460,20 @@ export default function Home() {
                         key={msg.id}
                         className={`bubble ${msg.role === "user" ? "user" : "assistant"}`}
                       >
-                        <b>{msg.role === "user" ? "You" : "RLM Forge"}</b>
+                        <b>{msg.role === "user" ? "You" : "Scout"}</b>
                         <p>{msg.content}</p>
                       </div>
                     ))}
                     {activeJob && !["completed", "failed"].includes(activeJob.status?.toLowerCase() || "") && (
                       <div className="bubble assistant">
-                        <b>RLM Forge</b>
+                        <b>Scout</b>
                         <RunProgress status={activeJob.status} />
                         <p className="answerText text-muted">Running research...</p>
                       </div>
                     )}
                     {activeJob && ["completed", "failed"].includes(activeJob.status?.toLowerCase() || "") && (
                       <div className="bubble assistant">
-                        <b>RLM Forge</b>
+                        <b>Scout</b>
                         <MessageContent content={answerText(activeJob)} />
                         <SourcesPanel sources={getSources(activeJob)} />
                         {activeJob.agentRuns?.length ? (
@@ -491,7 +491,7 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="welcome-dashboard">
-                    <div className="welcome-logo">RLM FORGE</div>
+                    <div className="welcome-logo">SCOUT</div>
                     <div className="welcome-subtitle">
                       API, Docs and Recursive AI Research Engine
                     </div>
@@ -786,7 +786,7 @@ export default function Home() {
                 <textarea
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
-                  placeholder="Ask RLM Forge anything..."
+                  placeholder="Ask Scout anything..."
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();

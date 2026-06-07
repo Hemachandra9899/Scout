@@ -150,7 +150,7 @@ export default function Workspace({
           <textarea
             value={question}
             onChange={(e) => onQuestionChange(e.target.value)}
-            placeholder="Ask RLM Forge to research something..."
+            placeholder="Ask Scout to research something..."
           />
           <button
             className="primary large"

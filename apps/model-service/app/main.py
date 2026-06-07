@@ -5,7 +5,7 @@ from modules.embeddings.embeddings_router import router as embeddings_router
 from modules.convert.convert_router import router as convert_router
 from modules.scrape.scrape_router import router as scrape_router
 
-app = FastAPI(title="RLM Forge Model Service")
+app = FastAPI(title="Scout Model Service")
 
 
 @app.get("/health")

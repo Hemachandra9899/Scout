@@ -15,10 +15,18 @@
     "./scrapers/scrapling.scraper.js": "./src/scrapers/scrapling.scraper.js",
     "./registry/doc-registry": "./src/registry/doc-registry.js",
     "./registry/doc-registry.js": "./src/registry/doc-registry.js",
+    "./research/source-types": "./src/research/source-types.js",
+    "./research/source-types.js": "./src/research/source-types.js",
+    "./research/query-builder": "./src/research/query-builder.js",
+    "./research/query-builder.js": "./src/research/query-builder.js",
+    "./research/source-ranker": "./src/research/source-ranker.js",
+    "./research/source-ranker.js": "./src/research/source-ranker.js",
+    "./research/search-provider": "./src/research/search-provider.js",
+    "./research/search-provider.js": "./src/research/search-provider.js",
     "./research/resource-planner": "./src/research/resource-planner.js",
     "./research/resource-planner.js": "./src/research/resource-planner.js",
-    "./research/source-quality": "./src/research/source-quality.js",
-    "./research/source-quality.js": "./src/research/source-quality.js"
+    "./research/evidence-pack": "./src/research/evidence-pack.js",
+    "./research/evidence-pack.js": "./src/research/evidence-pack.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",

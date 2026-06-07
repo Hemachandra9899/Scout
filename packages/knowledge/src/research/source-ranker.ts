@@ -1,17 +1,10 @@
-export type SourceTier =
-  | "official_docs"
-  | "trusted_docs"
-  | "reference_examples"
-  | "community"
-  | "media"
-  | "unknown";
-
-export type SourceUseCase =
-  | "api_facts"
-  | "comparison"
-  | "implementation_help"
-  | "tutorial"
-  | "general_research";
+import type {
+  RankedResource,
+  ResourceCandidate,
+  SourceTier,
+  SourceUseCase,
+} from "./source-types.js";
+import { inferSourceUseCase } from "./query-builder.js";
 
 const OFFICIAL_DOC_DOMAINS = [
   "developers.facebook.com",
@@ -39,10 +32,7 @@ const TRUSTED_DOC_DOMAINS = [
   "docs.github.com",
 ];
 
-const REFERENCE_EXAMPLE_DOMAINS = [
-  "postman.com",
-  "gitlab.com",
-];
+const REFERENCE_DOMAINS = ["postman.com", "gitlab.com"];
 
 const COMMUNITY_DOMAINS = [
   "stackoverflow.com",
@@ -53,10 +43,7 @@ const COMMUNITY_DOMAINS = [
   "quora.com",
 ];
 
-const MEDIA_DOMAINS = [
-  "youtube.com",
-  "youtu.be",
-];
+const MEDIA_DOMAINS = ["youtube.com", "youtu.be"];
 
 export function getHostname(url?: string | null): string {
   if (!url) return "";
@@ -76,44 +63,20 @@ function matchesAny(host: string, domains: string[]) {
   return domains.some((domain) => hostMatches(host, domain));
 }
 
-export function getSourceTier(url?: string | null): SourceTier {
+export function inferTierFromUrl(url?: string | null): SourceTier {
   const host = getHostname(url);
 
   if (!host) return "unknown";
   if (matchesAny(host, OFFICIAL_DOC_DOMAINS)) return "official_docs";
   if (matchesAny(host, TRUSTED_DOC_DOMAINS)) return "trusted_docs";
-  if (matchesAny(host, REFERENCE_EXAMPLE_DOMAINS)) return "reference_examples";
+  if (matchesAny(host, REFERENCE_DOMAINS)) return "reference_examples";
   if (matchesAny(host, COMMUNITY_DOMAINS)) return "community";
   if (matchesAny(host, MEDIA_DOMAINS)) return "media";
 
   return "unknown";
 }
 
-export function inferSourceUseCase(query: string): SourceUseCase {
-  const q = query.toLowerCase();
-
-  if (/\b(compare|comparison|vs|versus|difference|matrix)\b/.test(q)) {
-    return "comparison";
-  }
-
-  if (/\b(api|endpoint|permission|oauth|quota|rate limit|field|pricing|docs|documentation)\b/.test(q)) {
-    return "api_facts";
-  }
-
-  if (/\b(error|bug|fix|workaround|not working|debug|issue)\b/.test(q)) {
-    return "implementation_help";
-  }
-
-  if (/\b(how to|tutorial|example|sample|guide)\b/.test(q)) {
-    return "tutorial";
-  }
-
-  return "general_research";
-}
-
-export function sourceScore(url?: string | null, useCase: SourceUseCase = "general_research") {
-  const tier = getSourceTier(url);
-
+function tierScore(tier: SourceTier, useCase: SourceUseCase): number {
   const scores: Record<SourceUseCase, Record<SourceTier, number>> = {
     api_facts: {
       official_docs: 100,
@@ -160,30 +123,85 @@ export function sourceScore(url?: string | null, useCase: SourceUseCase = "gener
   return scores[useCase][tier];
 }
 
-export function filterAndRankSources<
-  T extends { url?: string | null; sourceUrl?: string | null },
->(
-  sources: T[],
-  query: string,
-  options?: {
-    minScore?: number;
-    maxSources?: number;
-  },
-): T[] {
-  const useCase = inferSourceUseCase(query);
-  const minScore = options?.minScore ?? 30;
-  const maxSources = options?.maxSources ?? 10;
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9.+#\s-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
 
-  return [...sources]
-    .map((source) => {
-      const url = source.url || source.sourceUrl;
-      return {
-        source,
-        score: sourceScore(url, useCase),
-      };
-    })
-    .filter((item) => item.score >= minScore)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxSources)
-    .map((item) => item.source);
+function phraseMatch(query: string, phrase: string) {
+  return query.toLowerCase().includes(phrase.toLowerCase());
+}
+
+export function rankResourceCandidates(
+  query: string,
+  candidates: ResourceCandidate[],
+  options?: {
+    maxSources?: number;
+    minScore?: number;
+  }
+): RankedResource[] {
+  const useCase = inferSourceUseCase(query);
+  const queryTokens = new Set(tokenize(query));
+  const maxSources = options?.maxSources ?? 10;
+  const minScore = options?.minScore ?? 30;
+
+  const ranked = candidates.map((candidate) => {
+    const tier = candidate.tier || inferTierFromUrl(candidate.url);
+    const matchedBy: string[] = [];
+    let score = tierScore(tier, useCase);
+
+    for (const keyword of candidate.keywords || []) {
+      if (phraseMatch(query, keyword)) {
+        score += 25;
+        matchedBy.push(`keyword:${keyword}`);
+      }
+    }
+
+    for (const topic of candidate.topics || []) {
+      if (phraseMatch(query, topic)) {
+        score += 15;
+        matchedBy.push(`topic:${topic}`);
+      }
+    }
+
+    for (const token of tokenize(candidate.product || "")) {
+      if (queryTokens.has(token)) {
+        score += 8;
+        matchedBy.push(`product-token:${token}`);
+      }
+    }
+
+    if (candidate.domain && phraseMatch(query, candidate.domain)) {
+      score += 10;
+      matchedBy.push(`domain:${candidate.domain}`);
+    }
+
+    if (candidate.source === "registry") {
+      score += 10;
+      matchedBy.push("registry");
+    }
+
+    return {
+      ...candidate,
+      tier,
+      score,
+      matchedBy,
+    };
+  });
+
+  const deduped: RankedResource[] = [];
+  const seen = new Set<string>();
+
+  for (const item of ranked.sort((a, b) => b.score - a.score)) {
+    if (seen.has(item.url)) continue;
+    if (item.score < minScore) continue;
+
+    seen.add(item.url);
+    deduped.push(item);
+  }
+
+  return deduped.slice(0, maxSources);
 }

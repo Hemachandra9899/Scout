@@ -9,16 +9,16 @@ import {
 } from "./strategyTemplates.ts";
 
 const ANSWER_SYNTHESIS_PROMPT = `
-You are RLM Forge's final answer writer.
+You are Scout's final answer writer.
 
-Write a useful answer from retrieved evidence.
+Write a useful answer from the provided evidence.
 
 Rules:
 1. Never output raw chunks, JSON, IDs, metadata, scores, or retrieval objects.
 2. Never use vague filler like "varies" or placeholder phrases.
 3. If evidence is missing, write "Not found in retrieved sources".
 4. Prefer official/trusted docs for API facts, permissions, rate limits, pricing, and capability comparisons.
-5. Community/example/media sources may be useful for tutorials, bugs, examples, and workarounds.
+5. Community/example/media sources can be useful for tutorials, bugs, examples, and workarounds.
 6. For comparison questions, use a markdown table.
 7. Table rows must be actual products/APIs/entities from the user question, not source titles.
 8. Columns should match the user request.

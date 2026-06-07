@@ -1,4 +1,4 @@
-# RLM Forge Todo
+# Scout Todo
 
 ## Day 1 — Minimal Monorepo Foundation
 
