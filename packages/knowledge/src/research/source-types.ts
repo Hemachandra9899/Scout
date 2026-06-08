@@ -85,8 +85,15 @@ export type AnswerCitation = {
   usedClaims: number;
 };
 
+export type AnswerMode =
+  | "comparison"
+  | "how_to"
+  | "research_summary"
+  | "general";
+
 export type SynthesizedAnswer = {
   status: "answered" | "partial" | "insufficient_evidence";
+  mode: AnswerMode;
   markdown: string;
   citations: AnswerCitation[];
   usedEvidenceCount: number;

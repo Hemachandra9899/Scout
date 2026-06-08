@@ -124,3 +124,21 @@ This file tracks the next implementation steps for Scout Research Engine v2.
 - [ ] Add implementation-specific formatting for "how to fix" questions.
 - [ ] Add UI rendering for `answer.markdown` and `answer.citations`.
 - [ ] Add an optional LLM polish step that is constrained to EvidencePack only.
+
+## Done in v2 Slice 6
+
+- [x] Added answer quality modes.
+- [x] Added comparison-specific rendering with a comparison table.
+- [x] Added how-to/debug rendering with steps and verification notes.
+- [x] Added research-summary rendering for broad overview questions.
+- [x] Added `answer.mode` to the synthesized answer output.
+
+## Now
+
+### Product/API cleanup
+
+- [ ] Add tests for answer mode detection.
+- [ ] Add tests for comparison/how-to/research-summary rendering.
+- [ ] Expose answer mode in the UI.
+- [ ] Add a source drawer UI for `answer.citations`.
+- [ ] Remove root-level patch scripts or move them under `scripts/dev-patches/` before merging.

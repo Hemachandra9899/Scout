@@ -66,3 +66,10 @@
 - Deterministic synthesis is a good first safety layer because it prevents unsupported claims from entering the answer.
 - LLM polish should be optional and evidence-constrained. Do not let it introduce uncited facts.
 - Returning both `answer` and `evidencePack` makes debugging and UI source drawers easier.
+
+## Research Engine v2 Slice 6
+
+- One generic answer format is not enough. Comparison, how-to, and research-summary questions need different structure.
+- Answer rendering can remain deterministic while still feeling useful.
+- The answer layer should never introduce new facts; it should only reorganize verified evidence.
+- Optional LLM polish should come after deterministic modes, not before.

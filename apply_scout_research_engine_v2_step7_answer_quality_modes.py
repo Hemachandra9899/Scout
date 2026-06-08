@@ -1,3 +1,162 @@
+#!/usr/bin/env python3
+# Apply Scout Research Engine v2 Step 7: Answer Quality Modes.
+#
+# Run from Scout repo root on branch:
+#   feat/research-engine-v2
+#
+# This patch improves deterministic answer synthesis:
+# - Detects answer mode: comparison / how_to / research_summary / general.
+# - Renders comparison questions as a comparison table + takeaways.
+# - Renders implementation/debug questions as grounded steps.
+# - Renders broad research questions as a concise research summary.
+# - Keeps citations source-numbered and evidence constrained.
+# - Updates types, exports docs, TODO, and LESSONS.
+#
+# No DB migration required.
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+ROOT = Path.cwd()
+
+
+def write(path: str, content: str) -> None:
+    target = ROOT / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content.strip() + "\n", encoding="utf-8")
+    print(f"wrote {path}")
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def assert_repo_root() -> None:
+    required = [
+        "package.json",
+        "packages/knowledge/src/research/source-types.ts",
+        "packages/knowledge/src/research/answer-synthesizer.ts",
+    ]
+    missing = [p for p in required if not (ROOT / p).exists()]
+    if missing:
+        raise SystemExit(
+            "Run this script from the Scout repo root. Missing:\n"
+            + "\n".join(f"- {p}" for p in missing)
+        )
+
+
+SOURCE_TYPES_TS = r'''
+export type SourceTier =
+  | "official_docs"
+  | "trusted_docs"
+  | "reference_examples"
+  | "community"
+  | "media"
+  | "unknown";
+
+export type SourceUseCase =
+  | "api_facts"
+  | "comparison"
+  | "implementation_help"
+  | "tutorial"
+  | "general_research";
+
+export type ResourceCandidate = {
+  title: string;
+  url: string;
+  product?: string;
+  domain?: string;
+  tier: SourceTier;
+  topics?: string[];
+  keywords?: string[];
+  reason: string;
+  source: "registry" | "web_search" | "user_url";
+};
+
+export type RankedResource = ResourceCandidate & {
+  score: number;
+  matchedBy: string[];
+};
+
+export type EvidenceItem = {
+  claim: string;
+  quote: string;
+  title: string;
+  url: string;
+  section?: string;
+  product?: string;
+  domain?: string;
+  tier: SourceTier;
+  confidence: number;
+  entities: string[];
+  reason: string;
+  text?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type CitationVerificationStatus =
+  | "supported"
+  | "weak"
+  | "unsupported";
+
+export type CitationVerification = {
+  status: CitationVerificationStatus;
+  claim: string;
+  supportingUrls: string[];
+  reason: string;
+};
+
+export type EvidencePack = {
+  query: string;
+  useCase: SourceUseCase;
+  resourcesPlanned: RankedResource[];
+  evidence: EvidenceItem[];
+  citationVerification: CitationVerification[];
+  coverage: {
+    hasEvidence: boolean;
+    sourceCount: number;
+    claimCount: number;
+    uniqueSourceCount: number;
+    officialSourceCount: number;
+    supportedClaimCount: number;
+    weakClaimCount: number;
+    unsupportedClaimCount: number;
+    missing: string[];
+  };
+};
+
+export type AnswerCitation = {
+  id: number;
+  title: string;
+  url: string;
+  tier: SourceTier;
+  usedClaims: number;
+};
+
+export type AnswerMode =
+  | "comparison"
+  | "how_to"
+  | "research_summary"
+  | "general";
+
+export type SynthesizedAnswer = {
+  status: "answered" | "partial" | "insufficient_evidence";
+  mode: AnswerMode;
+  markdown: string;
+  citations: AnswerCitation[];
+  usedEvidenceCount: number;
+  supportedEvidenceCount: number;
+  weakEvidenceCount: number;
+  omittedUnsupportedCount: number;
+  confidence: number;
+};
+'''
+
+
+ANSWER_SYNTHESIZER_TS = r'''
 import type {
   AnswerCitation,
   AnswerMode,
@@ -489,3 +648,85 @@ export function synthesizeAnswerFromEvidencePack(input: {
     confidence: confidenceForAnswer(rows),
   };
 }
+'''
+
+
+TODO_APPEND = '''
+## Done in v2 Slice 6
+
+- [x] Added answer quality modes.
+- [x] Added comparison-specific rendering with a comparison table.
+- [x] Added how-to/debug rendering with steps and verification notes.
+- [x] Added research-summary rendering for broad overview questions.
+- [x] Added `answer.mode` to the synthesized answer output.
+
+## Now
+
+### Product/API cleanup
+
+- [ ] Add tests for answer mode detection.
+- [ ] Add tests for comparison/how-to/research-summary rendering.
+- [ ] Expose answer mode in the UI.
+- [ ] Add a source drawer UI for `answer.citations`.
+- [ ] Remove root-level patch scripts or move them under `scripts/dev-patches/` before merging.
+'''
+
+
+LESSONS_APPEND = '''
+## Research Engine v2 Slice 6
+
+- One generic answer format is not enough. Comparison, how-to, and research-summary questions need different structure.
+- Answer rendering can remain deterministic while still feeling useful.
+- The answer layer should never introduce new facts; it should only reorganize verified evidence.
+- Optional LLM polish should come after deterministic modes, not before.
+'''
+
+
+def update_todo() -> None:
+    path = ROOT / "docs/TODO.md"
+    if not path.exists():
+        write("docs/TODO.md", "# Scout TODO\n\n" + TODO_APPEND)
+        return
+
+    text = path.read_text(encoding="utf-8").rstrip()
+    if "Done in v2 Slice 6" not in text:
+        text += "\n\n" + TODO_APPEND.strip() + "\n"
+    path.write_text(text, encoding="utf-8")
+    print("updated docs/TODO.md")
+
+
+def update_lessons() -> None:
+    path = ROOT / "docs/LESSONS.md"
+    if not path.exists():
+        write("docs/LESSONS.md", "# Scout Lessons\n\n" + LESSONS_APPEND)
+        return
+
+    text = path.read_text(encoding="utf-8").rstrip()
+    if "Research Engine v2 Slice 6" not in text:
+        text += "\n\n" + LESSONS_APPEND.strip() + "\n"
+    path.write_text(text, encoding="utf-8")
+    print("updated docs/LESSONS.md")
+
+
+def main() -> None:
+    assert_repo_root()
+
+    write("packages/knowledge/src/research/source-types.ts", SOURCE_TYPES_TS)
+    write("packages/knowledge/src/research/answer-synthesizer.ts", ANSWER_SYNTHESIZER_TS)
+
+    update_todo()
+    update_lessons()
+
+    print("\nDone.")
+    print("\nNext commands:")
+    print("  npm run prisma:generate")
+    print("  docker compose build api worker model-service")
+    print("  docker compose up")
+    print("\nSmoke tests:")
+    print("  1. Compare query should return answer.mode = comparison.")
+    print("  2. How-to query should return answer.mode = how_to.")
+    print("  3. Overview query should return answer.mode = research_summary.")
+
+
+if __name__ == "__main__":
+    main()
