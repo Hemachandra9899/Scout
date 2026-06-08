@@ -34,6 +34,7 @@ export type ResearchOrchestratorOutput = {
   memories: {
     retrieved: number;
     written: number;
+    usedForRanking: number;
     planned: {
       sourceQuality: number;
       sourceFailure: number;
@@ -113,7 +114,12 @@ export class ResearchOrchestrator {
     }
 
     const memoryResult = await this.memoryAgent.retrieveForRun(context);
-    const retrievedMemoryCount = memoryResult.output?.retrieved.length ?? 0;
+    const retrievedMemories = memoryResult.output?.retrieved ?? [];
+    const retrievedMemoryCount = retrievedMemories.length;
+
+    const rankingMemories = retrievedMemories.filter((memory) =>
+      ["source_quality", "source_failure", "durable_fact"].includes(memory.kind)
+    );
 
     const maxSources =
       input.maxSources ?? planResult.output.recommendedMaxSources ?? 8;
@@ -127,6 +133,7 @@ export class ResearchOrchestrator {
       const resourcePlan = await planResources({
         query: subquery.query,
         maxSources: Math.max(5, Math.ceil(maxSources / subqueries.length)),
+        memoryHints: rankingMemories,
       });
 
       for (const resource of resourcePlan.resources) {
@@ -250,6 +257,7 @@ export class ResearchOrchestrator {
       memories: {
         retrieved: retrievedMemoryCount,
         written: writeResult.output?.written ?? 0,
+        usedForRanking: rankingMemories.length,
         planned: {
           sourceQuality: sourceMemoryDrafts.length,
           sourceFailure: failureMemoryDrafts.length,

@@ -44,7 +44,9 @@
     "./research/evidence-extractor": "./src/research/evidence-extractor.js",
     "./research/evidence-extractor.js": "./src/research/evidence-extractor.js",
     "./research/citation-verifier": "./src/research/citation-verifier.js",
-    "./research/citation-verifier.js": "./src/research/citation-verifier.js"
+    "./research/citation-verifier.js": "./src/research/citation-verifier.js",
+    "./research/memory-ranking": "./src/research/memory-ranking.js",
+    "./research/memory-ranking.js": "./src/research/memory-ranking.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",

@@ -85,3 +85,24 @@ This file tracks the next implementation steps for Scout Research Engine v2.
   - Docs registry
 - [ ] Add streaming run traces in the UI.
 - [ ] Add source drawer with per-claim citations.
+
+## Done in v2 Slice 4
+
+- [x] Added memory-aware source ranking.
+- [x] Boosted sources with prior `source_quality` memories.
+- [x] Penalized sources with prior `source_failure` memories.
+- [x] Lightly boosted sources/entities connected to `durable_fact` memories.
+- [x] Exposed `memories.usedForRanking` in `ResearchOrchestrator` output.
+
+## Now
+
+### Validation and tests
+
+- [ ] Add tests for memory-aware ranking.
+- [ ] Add tests for `planResources({ memoryHints })`.
+- [ ] Add an end-to-end smoke test that runs the same query twice and verifies useful sources are boosted on the second run.
+- [ ] Add logging/traces for memory score deltas.
+
+### Next product feature
+
+- [ ] Add answer synthesis using `EvidencePack` directly instead of relying on raw RLM final output.

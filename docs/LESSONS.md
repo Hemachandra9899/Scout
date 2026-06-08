@@ -52,3 +52,10 @@
 - Merging resources across subqueries with URL normalization and score-based dedup is better than per-subquery limits.
 - Tracking `matchedBy` per resource helps future debugging and source diversity scoring.
 - The output should include `subqueries` so callers can see what was planned.
+
+## Research Engine v2 Slice 4
+
+- Memory becomes useful only when it changes future behavior. Writing memory is not enough.
+- Source memory should affect resource planning before crawling, not only answer synthesis after crawling.
+- Keep source penalties bounded. A failed URL should be penalized, but not permanently banned.
+- Durable fact memory should give only a small boost during ranking; evidence from current sources should still dominate.
