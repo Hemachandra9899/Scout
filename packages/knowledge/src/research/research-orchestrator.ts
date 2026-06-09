@@ -224,11 +224,21 @@ export class ResearchOrchestrator {
       evidencePack,
     });
 
+    const skippedAsFailures: Array<{
+      title?: string;
+      url?: string;
+      reason: string;
+    }> = crawl.skipped.map((s) => ({
+      title: s.title,
+      url: s.url,
+      reason: `Skipped by quality gate: ${s.reason}`,
+    }));
+
     const failureMemoryDrafts = this.memoryAgent.buildFailureMemoriesFromCrawlFailures({
       projectId: input.projectId,
       userId: input.userId,
       query: input.query,
-      failedCrawls: crawl.failed,
+      failedCrawls: [...crawl.failed, ...skippedAsFailures],
     });
 
     const durableFactMemoryDrafts =

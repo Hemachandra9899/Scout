@@ -226,6 +226,29 @@ describe("ResearchOrchestrator integration", () => {
         rejectedByQuality: 0,
         sourcesWithContent: 2,
         sourcesSkipped: 0,
+        retryCount: 0,
+        resourceTraces: [
+          {
+            resourceUrl: "https://docs.example.com/auth",
+            tier: "official_docs",
+            modesPlanned: ["auto"],
+            attempts: 1,
+            retried: false,
+            pagesAccepted: 1,
+            pagesSkipped: 0,
+            pagesFailed: 0,
+          },
+          {
+            resourceUrl: "https://docs.sample.com/auth",
+            tier: "official_docs",
+            modesPlanned: ["auto"],
+            attempts: 1,
+            retried: false,
+            pagesAccepted: 1,
+            pagesSkipped: 0,
+            pagesFailed: 0,
+          },
+        ],
       },
     });
 

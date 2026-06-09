@@ -32,3 +32,4 @@ export * from "./research/search-providers/index.js";
 export * from "./research/search-routing.js";
 export * from "./research/search-provider-config.js";
 export * from "./research/crawl-quality.js";
+export * from "./research/crawl-retry-policy.js";
