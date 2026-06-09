@@ -464,3 +464,29 @@ The deterministic research pipeline is the foundation. Graph agents, swarms, and
 Built to think deeper. Research further. Answer with evidence.
 
 </div>
+
+---
+
+## Provider smoke tests
+
+Provider smoke tests call real external APIs and are skipped by default.
+
+Run Tavily only:
+
+```bash
+RUN_PROVIDER_SMOKE=1 TAVILY_API_KEY=... npm run test:providers
+```
+
+Run GitHub only:
+
+```bash
+RUN_PROVIDER_SMOKE=1 GITHUB_TOKEN=... npm run test:providers
+```
+
+Run Firecrawl + Tavily:
+
+```bash
+RUN_PROVIDER_SMOKE=1 FIRECRAWL_API_KEY=... TAVILY_API_KEY=... npm run test:providers
+```
+
+Brave is intentionally not used.

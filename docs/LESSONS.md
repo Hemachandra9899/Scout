@@ -101,3 +101,10 @@
 - GitHub search is valuable for implementation questions, but it should not run for every general web query.
 - Provider dedupe should happen before ranking to avoid over-counting the same URL.
 - Do not add paid providers if they are not needed; Tavily + GitHub + existing Firecrawl is enough for now.
+
+## Research Engine v2 Slice 12
+
+- Real provider tests should be opt-in because they call paid/rate-limited external APIs.
+- Provider smoke tests should validate contract shape, not exact search result content.
+- Aggregated provider tests should check dedupe and provider metadata.
+- Keep Brave disabled if it is not part of the current cost plan.

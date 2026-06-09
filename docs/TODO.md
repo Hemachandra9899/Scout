@@ -217,3 +217,19 @@ This file tracks the next implementation steps for Scout Research Engine v2.
 - [ ] Run smoke test with GitHub token for SDK/repository queries.
 - [ ] Run smoke test with Firecrawl + Tavily together if Firecrawl key is available.
 - [ ] Tune provider budgets after observing real results.
+
+## Done in v2 Slice 12
+
+- [x] Added real provider smoke tests gated behind `RUN_PROVIDER_SMOKE=1`.
+- [x] Added smoke tests for Tavily, GitHub, Firecrawl, and aggregated provider search.
+- [x] Added root/package scripts for provider smoke tests.
+
+## Now
+
+### Real provider validation
+
+- [ ] Run Tavily-only provider smoke test.
+- [ ] Run GitHub-only provider smoke test.
+- [ ] Run Firecrawl + Tavily provider smoke test if Firecrawl key is available.
+- [ ] Inspect returned domains and tune provider budgets if needed.
+- [ ] Commit and push Step 12 + Step 13 changes.

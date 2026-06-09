@@ -21,7 +21,8 @@
     "prisma:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
     "typecheck:knowledge": "npm --workspace packages/knowledge run typecheck",
-    "test:knowledge": "npm --workspace packages/knowledge test"
+    "test:knowledge": "npm --workspace packages/knowledge test",
+    "test:providers": "npm --workspace packages/knowledge run test:providers"
   },
   "devDependencies": {
     "prisma": "^6.1.0"

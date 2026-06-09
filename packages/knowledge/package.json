@@ -64,7 +64,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:providers": "vitest run src/research/__tests__/provider-smoke.test.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
