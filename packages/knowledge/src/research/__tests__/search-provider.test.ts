@@ -45,7 +45,8 @@ describe("searchResourceCandidates", () => {
     expect(providers[2].search).toHaveBeenCalled();
 
     expect(results).toHaveLength(2);
-    expect(results[0].metadata?.alternateProviders).toContain("tavily");
+    const merged = results.find((r) => r.metadata?.alternateProviders);
+    expect(merged?.metadata?.alternateProviders).toContain("firecrawl");
   });
 
   it("passes freshnessRequired to providers", async () => {

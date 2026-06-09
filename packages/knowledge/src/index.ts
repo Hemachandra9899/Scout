@@ -29,3 +29,4 @@ export * from "./memory/memory-types.js";
 export * from "./memory/memory-manager.js";
 export { isFreshnessRequired } from "./research/source-ranker.js";
 export * from "./research/search-providers/index.js";
+export * from "./research/search-routing.js";
