@@ -72,6 +72,10 @@ function pack(): EvidencePack {
       supportedClaimCount: 2,
       weakClaimCount: 0,
       unsupportedClaimCount: 1,
+      rawClaimCount: 3,
+      filteredClaimCount: 3,
+      qualityRejectedClaimCount: 0,
+      duplicateRejectedClaimCount: 0,
       missing: [],
     },
   };
@@ -106,6 +110,10 @@ describe("synthesizeAnswerFromEvidencePack", () => {
         supportedClaimCount: 0,
         weakClaimCount: 0,
         unsupportedClaimCount: 0,
+        rawClaimCount: 0,
+        filteredClaimCount: 0,
+        qualityRejectedClaimCount: 0,
+        duplicateRejectedClaimCount: 0,
         missing: ["No claim-level evidence was collected."],
       },
     };

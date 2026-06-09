@@ -6,6 +6,7 @@ import type {
 } from "./source-types.js";
 import { inferSourceUseCase } from "./query-builder.js";
 import { verifyEvidenceClaims } from "./citation-verifier.js";
+import { filterEvidence } from "./evidence-quality.js";
 
 function isOfficial(tier: string) {
   return tier === "official_docs" || tier === "trusted_docs";
@@ -21,11 +22,14 @@ export function buildEvidencePack(input: {
   evidence: EvidenceItem[];
 }): EvidencePack {
   const useCase: SourceUseCase = inferSourceUseCase(input.query);
-  const citationVerification = verifyEvidenceClaims(input.evidence);
 
-  const uniqueSourceUrls = unique(input.evidence.map((item) => item.url));
+  const { kept, qualityRejected, duplicateRejected } = filterEvidence(input.evidence);
+
+  const citationVerification = verifyEvidenceClaims(kept);
+
+  const uniqueSourceUrls = unique(kept.map((item) => item.url));
   const officialSourceUrls = unique(
-    input.evidence
+    kept
       .filter((item) => isOfficial(item.tier))
       .map((item) => item.url)
   );
@@ -42,7 +46,7 @@ export function buildEvidencePack(input: {
 
   const missing: string[] = [];
 
-  if (input.evidence.length === 0) {
+  if (kept.length === 0) {
     missing.push("No claim-level evidence was collected.");
   }
 
@@ -53,7 +57,7 @@ export function buildEvidencePack(input: {
     missing.push("No official/trusted sources were collected.");
   }
 
-  if (input.evidence.length > 0 && supportedClaimCount === 0) {
+  if (kept.length > 0 && supportedClaimCount === 0) {
     missing.push("Evidence was collected, but no claim passed citation verification.");
   }
 
@@ -61,17 +65,21 @@ export function buildEvidencePack(input: {
     query: input.query,
     useCase,
     resourcesPlanned: input.resourcesPlanned,
-    evidence: input.evidence,
+    evidence: kept,
     citationVerification,
     coverage: {
-      hasEvidence: input.evidence.length > 0,
-      sourceCount: input.evidence.length,
-      claimCount: input.evidence.length,
+      hasEvidence: kept.length > 0,
+      sourceCount: kept.length,
+      claimCount: kept.length,
       uniqueSourceCount: uniqueSourceUrls.length,
       officialSourceCount: officialSourceUrls.length,
       supportedClaimCount,
       weakClaimCount,
       unsupportedClaimCount,
+      rawClaimCount: input.evidence.length,
+      filteredClaimCount: kept.length,
+      qualityRejectedClaimCount: qualityRejected.length,
+      duplicateRejectedClaimCount: duplicateRejected.length,
       missing,
     },
   };

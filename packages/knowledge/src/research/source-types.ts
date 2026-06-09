@@ -81,6 +81,10 @@ export type EvidencePack = {
     supportedClaimCount: number;
     weakClaimCount: number;
     unsupportedClaimCount: number;
+    rawClaimCount: number;
+    filteredClaimCount: number;
+    qualityRejectedClaimCount: number;
+    duplicateRejectedClaimCount: number;
     missing: string[];
   };
 };
