@@ -260,3 +260,23 @@ This file tracks the next implementation steps for Scout Research Engine v2.
 - [x] Added skippedCrawls and crawlTrace to ResearchOrchestrator output.
 - [x] Added quality metadata to crawled documents.
 - [x] Added tests for crawl-quality scoring.
+
+## Done in v2 Slice 20
+
+- [x] Added frontend research contract extractor.
+- [x] Added ResearchDebugPanel with Summary, Sources, Crawl, Evidence, Grounding, and Raw tabs.
+- [x] Updated answer rendering to prefer `ui.answerMarkdown`.
+- [x] Updated sources rendering to prefer `ui.citations`.
+- [x] Added web typecheck script.
+
+## Now
+
+### UI validation
+
+- [ ] Run `npm run typecheck:web`.
+- [ ] Run `npm run typecheck:api`.
+- [ ] Run `npm run test:api`.
+- [ ] Run `npm run typecheck:knowledge`.
+- [ ] Run `npm run test:knowledge`.
+- [ ] Run Docker UI smoke test.
+- [ ] Confirm completed jobs show Research Debug panel.

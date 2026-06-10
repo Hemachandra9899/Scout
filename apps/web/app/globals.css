@@ -1528,3 +1528,174 @@ pre {
     display: none;
   }
 }
+
+/* Research debug panel */
+.researchDebugPanel {
+  margin-top: 10px;
+}
+
+.researchDebugBody {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.debugTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel2);
+}
+
+.debugTab {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.debugTab.active {
+  color: #000;
+  background: var(--lime);
+  border-color: var(--lime);
+}
+
+.debugTabBody {
+  padding: 10px;
+}
+
+.debugTabBody h4 {
+  margin: 8px 0 6px;
+  color: var(--lime);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.debugGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.debugPill {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 5px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.debugPill span {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.debugPill b {
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  margin: 0;
+}
+
+.debugPill.good b {
+  color: var(--lime);
+}
+
+.debugPill.warn b {
+  color: var(--orange);
+}
+
+.debugPill.bad b {
+  color: var(--bad);
+}
+
+.debugWarnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.debugWarning {
+  border: 1px solid rgba(255, 159, 26, 0.45);
+  color: var(--orange);
+  background: rgba(255, 159, 26, 0.08);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.debugList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.debugSourceCard,
+.debugResourceRow {
+  display: flex;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 5px;
+  padding: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.debugSourceCard span {
+  font-family: ui-monospace, monospace;
+  color: var(--lime);
+}
+
+.debugSourceCard div,
+.debugResourceRow {
+  min-width: 0;
+}
+
+.debugSourceCard b,
+.debugResourceRow b {
+  color: var(--text);
+  font-size: 11px;
+  margin: 0;
+}
+
+.debugSourceCard small,
+.debugResourceRow small,
+.debugMuted {
+  color: var(--muted);
+  font-size: 10px;
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.debugResourceRow {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.debugDetails {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.debugJson {
+  margin: 8px 0 0;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

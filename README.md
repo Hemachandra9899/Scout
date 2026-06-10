@@ -490,3 +490,32 @@ RUN_PROVIDER_SMOKE=1 FIRECRAWL_API_KEY=... TAVILY_API_KEY=... npm run test:provi
 ```
 
 Brave is intentionally not used.
+
+---
+
+## Frontend research debug panels
+
+The web app can render the `research-response-v1` contract from completed jobs.
+
+Debug tabs:
+
+```text
+Summary
+Sources
+Crawl
+Evidence
+Grounding
+Raw
+```
+
+The UI prefers:
+
+```text
+ui.answerMarkdown
+ui.citations
+ui.evidenceCoverage
+ui.crawlTrace
+ui.groundingStatus
+```
+
+when a contract is available, while preserving legacy report rendering as fallback.

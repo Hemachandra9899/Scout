@@ -124,3 +124,10 @@
 - Crawl trace metadata makes crawler behavior debuggable in production smoke tests.
 - Skipped pages should not silently disappear; they should be recorded for memory and debugging.
 - The next quality improvement should be crawl retry with different modes (auto → dynamic → stealth).
+
+## Research Engine v2 Slice 20
+
+- Frontend should consume a stable `ui` contract and avoid parsing raw internals when possible.
+- Keep raw debug JSON available, but make common traces first-class tabs.
+- Contract extraction should be tolerant because jobs may store output in report metadata, agent final output, or step results.
+- Legacy report rendering should remain as fallback.

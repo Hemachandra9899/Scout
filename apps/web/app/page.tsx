@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, Conversation, ProjectDocument, ResearchJob } from "../lib/api";
+import { getContractAnswerMarkdown, getContractSources, getResearchContract } from "../lib/researchContract";
 import { FileUploadPanel } from "../components/FileUploadPanel";
 import { DocumentsPanel } from "../components/DocumentsPanel";
 import { MessageContent } from "../components/MessageContent";
 import { SourcesPanel } from "../components/SourcesPanel";
 import { RunProgress } from "../components/RunProgress";
+import { ResearchDebugPanel } from "../components/ResearchDebugPanel";
 import { useProjects, useCreateProject } from "../hooks/useProjects";
 import { useProjectJobs } from "../hooks/useProjectJobs";
 import { useProjectDocuments } from "../hooks/useDocuments";
@@ -73,6 +75,9 @@ function extractStdout(job?: ResearchJob) {
 function answerText(job?: ResearchJob) {
   if (!job) return "";
 
+  const contractAnswer = getContractAnswerMarkdown(job);
+  if (contractAnswer && !isGenericAnswer(contractAnswer)) return contractAnswer;
+
   const report = job.reports?.[0];
 
   if (report?.content && !isGenericAnswer(report.content)) {
@@ -91,6 +96,9 @@ function answerText(job?: ResearchJob) {
 }
 
 function getSources(job?: ResearchJob) {
+  const contractSources = getContractSources(job);
+  if (contractSources.length > 0) return contractSources;
+
   const report = job?.reports?.[0] as any;
   const sources = report?.metadata?.sources;
 
@@ -486,6 +494,7 @@ export default function Home() {
                         <b>Scout</b>
                         <MessageContent content={answerText(activeJob)} />
                         <SourcesPanel sources={getSources(activeJob)} />
+                        <ResearchDebugPanel contract={getResearchContract(activeJob)} />
                         {activeJob.agentRuns?.length ? (
                           <details className="trace-details">
                             <summary>
