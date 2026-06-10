@@ -13,3 +13,7 @@ snapshots/tmp
 tmp
 uploads
 qdrant_storage
+
+# Scout benchmark outputs
+benchmark-runs/
+!benchmark-runs/.gitkeep

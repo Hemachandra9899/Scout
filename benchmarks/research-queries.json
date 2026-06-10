@@ -1,0 +1,98 @@
+[
+  {
+    "id": "google-ads-api-auth-rate-limits",
+    "category": "ads-api",
+    "query": "Find TypeScript SDK examples for building a Google Ads API integration. Include authentication, permissions, rate limits, and implementation risks.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "meta-marketing-api-permissions",
+    "category": "ads-api",
+    "query": "Explain Meta Marketing API permissions for campaign automation, including app review, required scopes, rate-limit risks, and the safest MVP implementation plan.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "tiktok-ads-api-campaign-automation",
+    "category": "ads-api",
+    "query": "Research TikTok Ads API campaign automation capabilities. Cover authentication, campaign/ad group/ad creation, reporting access, permissions, and implementation risks.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "stripe-billing-subscriptions",
+    "category": "payments-api",
+    "query": "Compare Stripe Billing API subscription lifecycle implementation details: customer creation, prices, subscriptions, invoices, webhooks, and common failure modes.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "shopify-admin-product-api",
+    "category": "commerce-api",
+    "query": "Research Shopify Admin API product creation and inventory update workflow. Include authentication, required permissions, rate limits, and GraphQL versus REST tradeoffs.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "github-rest-fine-grained-tokens",
+    "category": "developer-api",
+    "query": "Explain GitHub REST API fine-grained personal access token permissions for repository search, contents access, issues, and pull requests. Include implementation risks.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "slack-oauth-bot-scopes",
+    "category": "developer-api",
+    "query": "Research Slack API OAuth scopes for a bot app that reads messages, posts replies, and searches channels. Include token types, permissions, and app review risks.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "notion-database-query-limits",
+    "category": "developer-api",
+    "query": "Research Notion API database querying limits and best practices. Include authentication, pagination, filtering, rate limits, and integration permissions.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "hubspot-crm-associations",
+    "category": "crm-api",
+    "query": "Explain HubSpot CRM API contact, company, and deal association model. Include authentication, object APIs, association APIs, rate limits, and sync risks.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "salesforce-rest-oauth-crud",
+    "category": "crm-api",
+    "query": "Research Salesforce REST API OAuth and object CRUD implementation. Include connected app setup, token flow, object metadata, limits, and integration risks.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "openai-api-structured-outputs",
+    "category": "ai-api",
+    "query": "Research OpenAI API structured outputs for production extraction workflows. Include schema constraints, model support, API usage pattern, and failure handling.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  },
+  {
+    "id": "anthropic-api-tool-use",
+    "category": "ai-api",
+    "query": "Research Anthropic API tool use for building an agent. Include message format, tool schemas, tool result handling, streaming, and implementation risks.",
+    "minAcceptedPages": 1,
+    "minFilteredClaims": 5,
+    "minCitations": 1
+  }
+]

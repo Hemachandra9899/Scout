@@ -519,3 +519,39 @@ ui.groundingStatus
 ```
 
 when a contract is available, while preserving legacy report rendering as fallback.
+
+---
+
+## Benchmark query suite
+
+Scout includes a fixed research benchmark suite.
+
+Run after Docker is up:
+
+```bash
+API_BASE_URL=http://localhost:8000 \
+BENCHMARK_PROJECT_ID=test-project \
+npm run benchmark:research
+```
+
+Quick smoke:
+
+```bash
+BENCHMARK_MAX_QUERIES=3 npm run benchmark:research
+```
+
+Outputs are written to:
+
+```text
+benchmark-runs/<timestamp>/
+```
+
+The runner validates:
+
+```text
+contractVersion
+grounding status
+citation count
+accepted crawl pages
+filtered evidence count
+```

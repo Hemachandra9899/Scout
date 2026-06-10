@@ -25,7 +25,8 @@
     "typecheck:knowledge": "npm --workspace packages/knowledge run typecheck",
     "test:knowledge": "npm --workspace packages/knowledge test",
     "test:providers": "npm --workspace packages/knowledge run test:providers",
-    "typecheck:web": "npm --workspace apps/web run typecheck"
+    "typecheck:web": "npm --workspace apps/web run typecheck",
+    "benchmark:research": "node benchmarks/run-research-benchmark.mjs"
   },
   "devDependencies": {
     "prisma": "^6.1.0"

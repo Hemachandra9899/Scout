@@ -131,3 +131,10 @@
 - Keep raw debug JSON available, but make common traces first-class tabs.
 - Contract extraction should be tolerant because jobs may store output in report metadata, agent final output, or step results.
 - Legacy report rendering should remain as fallback.
+
+## Research Engine v2 Slice 21
+
+- Real query suites are needed before adding LLM polish.
+- A benchmark should save raw responses so failures can be debugged later.
+- Pass/fail criteria should focus on grounding, citations, crawl success, and filtered evidence.
+- Benchmarks should be dependency-free and runnable against the local Docker API.

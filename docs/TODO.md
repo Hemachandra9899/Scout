@@ -280,3 +280,22 @@ This file tracks the next implementation steps for Scout Research Engine v2.
 - [ ] Run `npm run test:knowledge`.
 - [ ] Run Docker UI smoke test.
 - [ ] Confirm completed jobs show Research Debug panel.
+
+## Done in v2 Slice 21
+
+- [x] Added benchmark query fixtures.
+- [x] Added dependency-free Node benchmark runner.
+- [x] Added raw response JSON output per query.
+- [x] Added summary.json, summary.csv, and summary.md outputs.
+- [x] Added pass/fail thresholds for grounding, citations, crawl pages, and evidence claims.
+- [x] Added root `benchmark:research` script.
+
+## Now
+
+### Benchmark validation
+
+- [ ] Start Docker stack.
+- [ ] Run `BENCHMARK_MAX_QUERIES=3 npm run benchmark:research`.
+- [ ] Run full `npm run benchmark:research`.
+- [ ] Inspect failed cases in `benchmark-runs/<timestamp>/summary.md`.
+- [ ] Use benchmark failures to tune crawler/evidence thresholds.
