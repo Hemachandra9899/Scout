@@ -12,6 +12,7 @@ const baseCrawlTrace: CrawlTrace = {
   sourcesWithContent: 3,
   sourcesSkipped: 2,
   retryCount: 4,
+  blockedDomainCount: 0,
   resourceTraces: [],
 };
 

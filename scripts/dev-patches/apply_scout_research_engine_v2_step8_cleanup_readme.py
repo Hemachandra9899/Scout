@@ -7,8 +7,10 @@ from pathlib import Path
 BASE = Path("/Users/teja/Desktop/Scout")
 RESEARCH = BASE / "packages" / "knowledge" / "src" / "research"
 
+
 def warn(msg):
     print(f"  WARN: {msg}")
+
 
 print("=== Step 8: Cleanup, README, DRY refactor ===")
 

@@ -96,6 +96,10 @@ export function buildResearchResponse(
     warnings.push(`Answer status: ${answer.status}`);
   }
 
+  if (crawlTrace.blockedDomainCount && crawlTrace.blockedDomainCount > 0) {
+    warnings.push(`${crawlTrace.blockedDomainCount} domain(s) blocked during crawl`);
+  }
+
   if (evidencePack.coverage.filteredClaimCount === 0) {
     warnings.push("No evidence claims passed quality filtering");
   }

@@ -241,20 +241,30 @@ export class MemoryManager {
   }): ScoutMemoryDraft[] {
     return input.failedCrawls
       .filter((failure) => Boolean(failure.url))
-      .map((failure) => ({
-        projectId: input.projectId,
-        userId: input.userId,
-        scope: "source",
-        kind: "source_failure",
-        text: `Source "${failure.url}" failed during crawl for query "${input.query}" because: ${failure.reason}`,
-        sourceUrls: [failure.url as string],
-        confidence: 0.8,
-        metadata: {
-          title: failure.title,
-          query: input.query,
-          reason: failure.reason,
-        },
-      }));
+      .map((failure) => {
+        const reason = failure.reason ?? "";
+        const isBlockedDomain =
+          reason.includes("403") ||
+          reason.toLowerCase().includes("blocked") ||
+          reason.toLowerCase().includes("forbidden") ||
+          reason.includes("Domain blocked");
+
+        return {
+          projectId: input.projectId,
+          userId: input.userId,
+          scope: "source",
+          kind: "source_failure",
+          text: `Source "${failure.url}" failed during crawl for query "${input.query}" because: ${failure.reason}`,
+          sourceUrls: [failure.url as string],
+          confidence: isBlockedDomain ? 0.9 : 0.8,
+          metadata: {
+            title: failure.title,
+            query: input.query,
+            reason: failure.reason,
+            ...(isBlockedDomain ? { domain_blocked: true } : {}),
+          },
+        };
+      });
   }
 
   buildDurableFactMemoriesFromEvidencePack(input: {

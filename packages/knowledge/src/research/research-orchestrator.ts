@@ -169,6 +169,7 @@ export class ResearchOrchestrator {
       projectId: input.projectId,
       query: plan.normalizedQuery,
       resources: mergedResources,
+      memoryHints: rankingMemories,
       maxPagesPerSource:
         input.maxPagesPerSource ??
         plan.recommendedMaxPagesPerSource ??

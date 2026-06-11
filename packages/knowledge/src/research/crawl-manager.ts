@@ -6,6 +6,7 @@ import { scorePageQuality, type ContentQuality } from "./crawl-quality.js";
 import { getFallbackMode, shouldRetry } from "./crawl-retry-policy.js";
 import type { ResourceCrawlTrace } from "./crawl-retry-policy.js";
 import { checkDedupe } from "./crawl-dedupe.js";
+import type { ResourceMemoryHint } from "./memory-ranking.js";
 
 export type CrawlManagerInput = {
   projectId: string;
@@ -14,6 +15,7 @@ export type CrawlManagerInput = {
   maxPagesPerSource?: number;
   maxTotalPages?: number;
   maxDepth?: number;
+  memoryHints?: ResourceMemoryHint[];
 };
 
 export type CrawledResearchPage = {
@@ -42,6 +44,7 @@ export type CrawlTrace = {
   sourcesWithContent: number;
   sourcesSkipped: number;
   retryCount: number;
+  blockedDomainCount: number;
   resourceTraces: ResourceCrawlTrace[];
 };
 
@@ -58,6 +61,14 @@ export type CrawlManagerOutput = {
 };
 
 export { type ResourceCrawlTrace };
+
+function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
 
 function modeForResource(resource: RankedResource): ScraplingCrawlMode {
   if (resource.tier === "official_docs" || resource.tier === "trusted_docs") {
@@ -180,10 +191,23 @@ export async function crawlResearchSources(
   const resourceTraces: ResourceCrawlTrace[] = [];
   const seenCanonicalUrls = new Set<string>();
   const seenContentHashes = new Set<string>();
+  const blockedDomains = new Set<string>();
+  for (const memory of input.memoryHints ?? []) {
+    if (memory.kind === "source_failure") {
+      const meta = memory.metadata as Record<string, unknown> | undefined;
+      if (meta?.domain_blocked === true) {
+        for (const url of memory.sourceUrls ?? []) {
+          const domain = extractDomain(url);
+          if (domain) blockedDomains.add(domain);
+        }
+      }
+    }
+  }
   let totalPagesCrawled = 0;
   let sourcesWithContent = 0;
   let sourcesSkipped = 0;
   let retryCount = 0;
+  let blockedDomainCount = 0;
   let totalDupeUrlCount = 0;
   let totalDupeContentCount = 0;
   let totalQualityRejectCount = 0;
@@ -202,6 +226,21 @@ export async function crawlResearchSources(
       pagesFailed: 0,
       error: undefined,
     };
+
+    const resourceDomain = extractDomain(resource.url);
+    if (resourceDomain && blockedDomains.has(resourceDomain)) {
+      sourcesSkipped++;
+      blockedDomainCount++;
+      failed.push({
+        title: resource.title,
+        url: resource.url,
+        reason: `Domain blocked: ${resourceDomain} (known blocked from prior failures)`,
+      });
+      resourceTrace.error = `Domain blocked: ${resourceDomain}`;
+      resourceTrace.pagesFailed = 1;
+      resourceTraces.push(resourceTrace);
+      continue;
+    }
 
     let currentMode = modeForResource(resource);
     let resourceAcceptedCount = 0;
@@ -239,6 +278,17 @@ export async function crawlResearchSources(
 
         if (result.accepted > 0) break;
 
+        if (resourceDomain && result.accepted === 0 && result.failedCount > 0) {
+          const allBlocked = (crawl.failedUrls ?? []).every((f) =>
+            f.reason.includes("403") ||
+            f.reason.toLowerCase().includes("blocked") ||
+            f.reason.toLowerCase().includes("forbidden")
+          );
+          if (allBlocked) {
+            blockedDomains.add(resourceDomain);
+          }
+        }
+
         const retryDecision = shouldRetry({
           acceptedPages: result.accepted,
           skippedPages: result.qualityRejectCount,
@@ -259,6 +309,10 @@ export async function crawlResearchSources(
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         resourceError = errMsg;
+
+        if (resourceDomain && (errMsg.includes("403") || errMsg.toLowerCase().includes("blocked") || errMsg.toLowerCase().includes("forbidden"))) {
+          blockedDomains.add(resourceDomain);
+        }
 
         if (attempt === 0) {
           const fallback = getFallbackMode(currentMode);
@@ -320,6 +374,7 @@ export async function crawlResearchSources(
       sourcesWithContent,
       sourcesSkipped,
       retryCount,
+      blockedDomainCount,
       resourceTraces,
     },
   };
