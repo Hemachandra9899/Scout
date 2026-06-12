@@ -6,6 +6,7 @@ import { StrategyAgent } from "./strategyAgent.ts";
 import { AnswerSynthesizer } from "./answerSynthesizer.ts";
 import { extractSources, isGenericOrRawAnswer } from "./answerUtils.ts";
 import { IntentDetector } from "./intentDetector.ts";
+import { FastIntentDetector, type FastIntent } from "./fastIntentDetector.ts";
 import { contextLimitMessage, isContextTooLarge } from "./contextGuard.ts";
 import type {
   AnswerSource,
@@ -59,6 +60,10 @@ Rules:
 20. If the first search does not find the requested row/date/value, retry with broader queries before finalizing.
 21. Never conclude that a value/date is missing from an uploaded document after only one search_kb call.
 22. For table-like uploaded documents, retrieve several relevant chunks and synthesize the row/period summary instead of doing exact string matching only.
+23. If fast intent guidance lists requiredTools, you must call those tools before final(...).
+24. For GitHub repository URLs, call github_repo(...), not crawl_url(...).
+25. For current/news/latest questions, call web_research(...), not only search_kb(...).
+26. Never call final(None). If a tool returns useful data, synthesize it into a real answer.
 `.trim();
 
 function buildInitialMessages(input: {
@@ -153,11 +158,27 @@ function toRecord(value: unknown): Record<string, unknown> {
 function buildRunGuidance(input: {
   intent: unknown;
   strategy: unknown;
+  fastIntent: FastIntent | null;
 }): string {
   const intent = toRecord(input.intent);
   const strategy = toRecord(input.strategy);
 
   const lines: string[] = [];
+
+  if (input.fastIntent) {
+    lines.push(
+      [
+        "Fast intent guidance:",
+        `- intent: ${input.fastIntent.intent}`,
+        `- answerMode: ${input.fastIntent.answerMode}`,
+        `- requiresWeb: ${input.fastIntent.requiresWeb}`,
+        `- requiresGithub: ${input.fastIntent.requiresGithub}`,
+        `- requiresFreshness: ${input.fastIntent.requiresFreshness}`,
+        `- requiredTools: ${input.fastIntent.requiredTools.join(", ") || "none"}`,
+        `- reason: ${input.fastIntent.reason}`,
+      ].join("\n")
+    );
+  }
 
   if (Object.keys(intent).length > 0) {
     lines.push(
@@ -186,6 +207,19 @@ function buildRunGuidance(input: {
   return lines.join("\n\n").trim();
 }
 
+function isEmptyFinalValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim().toLowerCase();
+  return !s || s === "none" || s === "null" || s === "done" || s === "all questions have been answered" || s === "i have completed all tasks";
+}
+
+function validateFinalBeforeStop(input: { final: unknown; toolsCalled: string[]; fastIntent: FastIntent | null; depth: number }): string | null {
+  const missing = (input.fastIntent?.requiredTools ?? []).filter((t) => !input.toolsCalled.includes(t));
+  if (missing.length > 0) return [`You must call required tool(s) before final(): ${missing.join(", ")}.`, input.fastIntent?.requiresWeb ? `This query requires web_research.` : ``, input.fastIntent?.requiresGithub ? `This query requires github_repo.` : ``, `Call the tool(s) then call final() with a real answer.`].filter(Boolean).join("\n");
+  if (isEmptyFinalValue(input.final)) return [`Your final answer was rejected because it was empty or generic.`, `Use tools and synthesize a real answer.`, input.fastIntent?.requiresWeb ? `This query requires web_research.` : ``, input.fastIntent?.requiresGithub ? `This query requires github_repo.` : ``, `Never call final(None).`].filter(Boolean).join("\n");
+  return null;
+}
+
 export class RlmLoop {
   private readonly modelClient: ModelClient;
   private readonly sandbox: PythonSandbox;
@@ -193,6 +227,7 @@ export class RlmLoop {
   private readonly strategyAgent: StrategyAgent;
   private readonly answerSynthesizer: AnswerSynthesizer;
   private readonly intentDetector: IntentDetector;
+  private readonly fastIntentDetector: FastIntentDetector;
 
   constructor(
     modelClient = new ModelClient(),
@@ -200,7 +235,8 @@ export class RlmLoop {
     toolsClient = new ToolsClient(),
     strategyAgent = new StrategyAgent(modelClient),
     answerSynthesizer = new AnswerSynthesizer(modelClient),
-    intentDetector = new IntentDetector(modelClient)
+    intentDetector = new IntentDetector(modelClient),
+    fastIntentDetector = new FastIntentDetector(modelClient)
   ) {
     this.modelClient = modelClient;
     this.sandbox = sandbox;
@@ -208,6 +244,7 @@ export class RlmLoop {
     this.strategyAgent = strategyAgent;
     this.answerSynthesizer = answerSynthesizer;
     this.intentDetector = intentDetector;
+    this.fastIntentDetector = fastIntentDetector;
   }
 
   async run(req: ExecuteRequest): Promise<RlmRunResult> {
@@ -216,6 +253,7 @@ export class RlmLoop {
     const maxSteps = Math.max(1, Math.min(req.maxSteps ?? DEFAULT_MAX_STEPS, 10));
     const steps: RlmStep[] = [];
 
+    const fastIntent = depth === 0 ? await this.fastIntentDetector.detect(req.query) : null;
     const intent = depth === 0 ? await this.intentDetector.detect(req.query) : null;
 
     const strategy =
@@ -236,7 +274,7 @@ export class RlmLoop {
         ? intentRecord.normalizedQuery
         : req.query;
 
-    const guidance = buildRunGuidance({ intent, strategy });
+    const guidance = buildRunGuidance({ intent, strategy, fastIntent });
 
     const messages = buildInitialMessages({
       query: normalizedQuery,
@@ -353,6 +391,8 @@ export class RlmLoop {
           toolHandler
         );
 
+        const toolsCalled: string[] = Array.isArray(execution.toolCalls) ? execution.toolCalls.map(String) : [];
+
         const step: RlmStep = {
           stepIndex,
           generatedCode,
@@ -375,6 +415,11 @@ export class RlmLoop {
         });
 
         if (execution.finalCalled && !execution.error) {
+          const finalRejection = validateFinalBeforeStop({ final: execution.final, toolsCalled, fastIntent, depth });
+          if (finalRejection) {
+            messages.push({ role: "user", content: finalRejection });
+            continue;
+          }
           const finalized = await finalizeAnswer(execution.final);
 
           return {

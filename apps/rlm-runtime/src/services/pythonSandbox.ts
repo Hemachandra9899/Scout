@@ -47,6 +47,7 @@ _rlm_stdout = io.StringIO()
 _rlm_final_called = False
 _rlm_final_value = None
 _rlm_error = None
+_rlm_tool_calls = []
 
 def _to_py(value):
     try:
@@ -59,6 +60,7 @@ async def llm_query(prompt, context=None):
     return _to_py(result)
 
 async def crawl_url(url, max_pages=1):
+    _rlm_tool_calls.append("crawl_url")
     result = await _rlm_tool_js("crawl_url", to_js({
         "url": url,
         "maxPages": max_pages
@@ -66,6 +68,7 @@ async def crawl_url(url, max_pages=1):
     return _to_py(result)
 
 async def search_kb(query, top_k=5):
+    _rlm_tool_calls.append("search_kb")
     result = await _rlm_tool_js("search_kb", to_js({
         "query": query,
         "topK": top_k
@@ -78,14 +81,25 @@ async def search_kb(query, top_k=5):
 
     return data
 
-async def web_research(query, max_results=3):
+async def web_research(query, max_results=3, max_pages_per_source=1, max_total_pages=5, max_depth=1):
+    _rlm_tool_calls.append("web_research")
     result = await _rlm_tool_js("web_research", to_js({
         "query": query,
-        "maxResults": max_results
+        "maxResults": max_results,
+        "maxPagesPerSource": max_pages_per_source,
+        "maxTotalPages": max_total_pages,
+        "maxDepth": max_depth,
+        "useOrchestrator": True
     }))
     return _to_py(result)
 
+async def github_repo(url, mode="summary", max_files=30):
+    _rlm_tool_calls.append("github_repo")
+    result = await _rlm_tool_js("github_repo", to_js({"url": url, "mode": mode, "maxFiles": max_files}))
+    return _to_py(result)
+
 async def query_graph(query, depth=1):
+    _rlm_tool_calls.append("query_graph")
     result = await _rlm_tool_js("query_graph", to_js({
         "query": query,
         "depth": depth
@@ -131,7 +145,8 @@ json.dumps({
     "stdout": _rlm_stdout.getvalue(),
     "final": _rlm_to_jsonable(_rlm_final_value),
     "finalCalled": _rlm_final_called,
-    "error": _rlm_error
+    "error": _rlm_error,
+    "toolCalls": _rlm_tool_calls
 })`;
 
     try {
@@ -143,6 +158,7 @@ json.dumps({
         final: parsed.final ?? null,
         finalCalled: Boolean(parsed.finalCalled),
         error: parsed.error ?? null,
+        toolCalls: Array.isArray(parsed.toolCalls) ? parsed.toolCalls.map(String) : [],
       };
     } catch (error) {
       return {
@@ -150,6 +166,7 @@ json.dumps({
         final: null,
         finalCalled: false,
         error: error instanceof Error ? error.message : String(error),
+        toolCalls: [],
       };
     }
   }

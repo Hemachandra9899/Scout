@@ -6,6 +6,7 @@ import {
   queryGraphSchema,
   searchKbSchema,
   webResearchSchema,
+  githubRepoSchema,
 } from "./tools.schema.js";
 import {
   crawlUrl,
@@ -14,6 +15,7 @@ import {
   queryGraph,
   searchKnowledgeBase,
   webResearch,
+  githubRepo,
 } from "./tools.service.js";
 import { preview } from "@rlm-forge/knowledge";
 
@@ -41,6 +43,11 @@ export async function toolsRouter(app: FastifyInstance) {
   app.post("/tools/query-graph", async (req) => {
     const input = queryGraphSchema.parse(req.body);
     return queryGraph(input);
+  });
+
+  app.post("/tools/github-repo", async (req) => {
+    const input = githubRepoSchema.parse(req.body);
+    return githubRepo(input);
   });
 
   app.post("/tools/ingest-file", async (req) => {

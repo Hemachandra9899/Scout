@@ -40,6 +40,14 @@ export class ModelClient {
     return data.content;
   }
 
+  async chatFastIntent(messages: ChatMessage[]): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/chat`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ mode:"fast_intent", messages, temperature:0.0, top_p:0.1, max_tokens:512 }) });
+    if (!response.ok) throw new Error(`model-service /chat fast_intent failed: ${response.status} ${await response.text()}`);
+    const data = (await response.json()) as ModelChatResponse;
+    if (!data.content?.trim()) throw new Error("model-service returned empty fast intent response");
+    return data.content;
+  }
+
   async chatReasoning(messages: ChatMessage[]): Promise<string> {
     const response = await fetch(`${this.baseUrl}/chat`, {
       method: "POST",

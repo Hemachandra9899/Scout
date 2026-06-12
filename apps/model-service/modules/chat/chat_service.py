@@ -7,7 +7,16 @@ from modules.chat.chat_schema import ChatRequest
 
 
 def chat_response(req: ChatRequest) -> Dict[str, Any]:
-    if req.mode == "coding":
+    if req.mode == "fast_intent":
+        model = os.getenv("FAST_INTENT_MODEL", "deepseek-ai/deepseek-v4-flash")
+        client = ChatNVIDIA(
+            model=model,
+            api_key=os.getenv("NVIDIA_API_KEY"),
+            temperature=req.temperature if req.temperature is not None else 0.0,
+            top_p=req.top_p if req.top_p is not None else 0.1,
+            max_tokens=req.max_tokens if req.max_tokens is not None else 512,
+        )
+    elif req.mode == "coding":
         model = os.getenv("NVIDIA_CODER_MODEL", "qwen/qwen3-coder-480b-a35b-instruct")
         client = ChatNVIDIA(
             model=model,

@@ -36,6 +36,7 @@ export type PythonExecutionResult = {
   final: unknown;
   finalCalled: boolean;
   error: string | null;
+  toolCalls: string[];
 };
 
 export type RlmStep = {
@@ -45,6 +46,7 @@ export type RlmStep = {
   final: unknown;
   finalCalled: boolean;
   error: string | null;
+  toolCalls: string[];
 };
 
 export type StrategyMethod = {

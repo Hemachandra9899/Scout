@@ -34,6 +34,13 @@ export const queryGraphSchema = z.object({
   depth: z.number().int().min(1).max(3).optional(),
 });
 
+export const githubRepoSchema = z.object({
+  projectId: z.string().uuid().optional(),
+  url: z.string().min(1),
+  mode: z.enum(["summary", "deep"]).optional(),
+  maxFiles: z.number().int().min(1).max(80).optional(),
+});
+
 export const ingestFileSchema = z.object({
   projectId: z.string().uuid(),
 });
@@ -43,4 +50,5 @@ export type WebResearchInput = z.infer<typeof webResearchSchema>;
 export type PlanResourcesInput = z.infer<typeof planResourcesSchema>;
 export type SearchKbInput = z.infer<typeof searchKbSchema>;
 export type QueryGraphInput = z.infer<typeof queryGraphSchema>;
+export type GithubRepoInput = z.infer<typeof githubRepoSchema>;
 export type IngestFileInput = z.infer<typeof ingestFileSchema>;
