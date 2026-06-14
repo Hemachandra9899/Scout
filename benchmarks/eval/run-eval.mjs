@@ -280,6 +280,33 @@ function checkMustMention(answer, mustMention) {
   };
 }
 
+function checkMustMentionAnyGroups(answer, groups) {
+  const normalizedAnswer = normalizeText(answer);
+  const safeGroups = Array.isArray(groups) ? groups : [];
+
+  const results = safeGroups.map((group) => {
+    const values = Array.isArray(group) ? group : [];
+    const hits = values.filter((item) =>
+      normalizedAnswer.includes(normalizeText(item))
+    );
+
+    return {
+      group: values,
+      hits,
+      passed: hits.length > 0,
+    };
+  });
+
+  return {
+    enabled: safeGroups.length > 0,
+    passed: results.every((item) => item.passed),
+    results,
+    missingGroups: results
+      .filter((item) => !item.passed)
+      .map((item) => item.group),
+  };
+}
+
 function checkAcceptableAny(answer, acceptableAny) {
   const values = safeArray(acceptableAny);
   if (values.length === 0) return { enabled: false, passed: true, hits: [] };
@@ -415,9 +442,12 @@ function evaluateCase(caseItem, response, answer, durationMs, judge) {
 
   const mention = checkMustMention(answer, caseItem.mustMention);
   const acceptable = checkAcceptableAny(answer, caseItem.acceptableAny);
+  const mentionAnyGroups = checkMustMentionAnyGroups(answer, caseItem.mustMentionAnyGroups);
   const forbidden = checkMustNotClaim(answer, caseItem.mustNotClaim);
 
-  const mentionPassed = acceptable.enabled ? acceptable.passed : mention.passed;
+  const mentionPassed =
+    (acceptable.enabled ? acceptable.passed : mention.passed) &&
+    (!mentionAnyGroups.enabled || mentionAnyGroups.passed);
 
   const minGroundedRatio = Number(caseItem.minGroundedRatio ?? 0);
   const maxLatencyMs = Number(caseItem.maxLatencyMs ?? 180_000);
@@ -433,7 +463,17 @@ function evaluateCase(caseItem, response, answer, durationMs, judge) {
 
   if (!routingPassed) failures.push(`routing expected tier/tool ${expectedTier}/${expectedTool}, got ${actualTier}/${actualTool}`);
   if (!groundedPassed) failures.push(`groundedRatio ${groundedRatio.toFixed(2)} < ${minGroundedRatio}`);
-  if (!mentionPassed) failures.push(`missing mustMention/acceptableAny: ${mention.missing.join(", ")}`);
+  if (!mentionPassed) {
+    const groupFailures = mentionAnyGroups.enabled
+      ? mentionAnyGroups.missingGroups
+          .map((group) => `[${group.join(" OR ")}]`)
+          .join(", ")
+      : "";
+
+    failures.push(
+      `missing mustMention: ${mention.missing.join(", ")} ${groupFailures}`.trim(),
+    );
+  }
   if (!forbidden.passed) failures.push(`mustNotClaim violations: ${forbidden.violations.join(", ")}`);
   if (!latencyPassed) failures.push(`latency ${durationMs} > ${maxLatencyMs}`);
   if (!correctnessPassed) failures.push(`correctness ${judge.correctness.toFixed(2)} too low`);
@@ -457,6 +497,10 @@ function evaluateCase(caseItem, response, answer, durationMs, judge) {
     mustMentionPassed: mentionPassed,
     mustMentionHits: mention.hits,
     mustMentionMissing: mention.missing,
+    mustMentionAnyGroupsPassed: mentionAnyGroups.enabled
+      ? mentionAnyGroups.passed
+      : true,
+    mustMentionAnyGroupsMissing: mentionAnyGroups.missingGroups,
     acceptableAnyHits: acceptable.hits,
     mustNotClaimPassed: forbidden.passed,
     mustNotClaimViolations: forbidden.violations,

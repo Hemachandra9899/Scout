@@ -9,7 +9,7 @@ from modules.chat.chat_schema import ChatRequest
 
 def _build_client(req: ChatRequest):
     if req.mode == "fast_intent":
-        model = os.getenv("FAST_INTENT_MODEL", "deepseek-ai/deepseek-v4-flash")
+        model = req.model or os.getenv("FAST_INTENT_MODEL", "deepseek-ai/deepseek-v4-flash")
         return model, ChatNVIDIA(
             model=model,
             api_key=os.getenv("NVIDIA_API_KEY"),
@@ -17,8 +17,9 @@ def _build_client(req: ChatRequest):
             top_p=req.top_p if req.top_p is not None else 0.1,
             max_tokens=req.max_tokens if req.max_tokens is not None else 512,
         )
-    elif req.mode == "coding":
-        model = os.getenv("NVIDIA_CODER_MODEL", "qwen/qwen3-coder-480b-a35b-instruct")
+
+    if req.mode == "coding":
+        model = req.model or os.getenv("NVIDIA_CODER_MODEL", "qwen/qwen3-coder-480b-a35b-instruct")
         return model, ChatNVIDIA(
             model=model,
             api_key=os.getenv("NVIDIA_API_KEY"),
@@ -26,21 +27,21 @@ def _build_client(req: ChatRequest):
             top_p=req.top_p if req.top_p is not None else 0.8,
             max_tokens=req.max_tokens if req.max_tokens is not None else 2048,
         )
-    else:
-        model = os.getenv("NVIDIA_REASONING_MODEL", "meta/llama-3.3-70b-instruct")
-        return model, ChatNVIDIA(
-            model=model,
-            api_key=os.getenv("NVIDIA_API_KEY"),
-            temperature=req.temperature if req.temperature is not None else 1.0,
-            top_p=req.top_p if req.top_p is not None else 1.0,
-            max_tokens=req.max_tokens if req.max_tokens is not None else 4096,
-            extra_body={
-                "chat_template_kwargs": {
-                    "enable_thinking": True,
-                    "clear_thinking": False,
-                }
-            },
-        )
+
+    model = req.model or os.getenv("NVIDIA_REASONING_MODEL", "meta/llama-3.3-70b-instruct")
+    return model, ChatNVIDIA(
+        model=model,
+        api_key=os.getenv("NVIDIA_API_KEY"),
+        temperature=req.temperature if req.temperature is not None else 1.0,
+        top_p=req.top_p if req.top_p is not None else 1.0,
+        max_tokens=req.max_tokens if req.max_tokens is not None else 4096,
+        extra_body={
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+                "clear_thinking": False,
+            }
+        },
+    )
 
 
 def chat_response(req: ChatRequest) -> Dict[str, Any]:

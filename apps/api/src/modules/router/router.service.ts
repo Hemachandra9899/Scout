@@ -25,6 +25,60 @@ const MODEL_SERVICE_URL =
 const RLM_RUNTIME_URL =
   process.env.RLM_RUNTIME_URL || "http://rlm-runtime:8787";
 
+const ROUTER_RESEARCH_MAX_RESULTS = Number(
+  process.env.ROUTER_RESEARCH_MAX_RESULTS || 3,
+);
+const ROUTER_RESEARCH_MAX_PAGES_PER_SOURCE = Number(
+  process.env.ROUTER_RESEARCH_MAX_PAGES_PER_SOURCE || 1,
+);
+const ROUTER_RESEARCH_MAX_TOTAL_PAGES = Number(
+  process.env.ROUTER_RESEARCH_MAX_TOTAL_PAGES || 4,
+);
+const ROUTER_RESEARCH_MAX_DEPTH = Number(
+  process.env.ROUTER_RESEARCH_MAX_DEPTH || 1,
+);
+const ROUTER_RESEARCH_TIMEOUT_MS = Number(
+  process.env.ROUTER_RESEARCH_TIMEOUT_MS || 120_000,
+);
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableModelError(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+
+  return (
+    text.includes("ResourceExhausted") ||
+    text.includes("workers are busy") ||
+    text.includes("Service Unavailable") ||
+    text.includes("503") ||
+    text.includes("502") ||
+    text.includes("504") ||
+    text.toLowerCase().includes("timeout")
+  );
+}
+
+function modelCandidatesForMode(
+  mode: "coding" | "reasoning",
+): Array<string | undefined> {
+  const values =
+    mode === "coding"
+      ? [
+          process.env.ROUTER_CODER_MODEL,
+          process.env.ROUTER_CODER_FALLBACK_MODEL,
+          process.env.ROUTER_CODER_FALLBACK_MODEL_2,
+        ]
+      : [
+          process.env.ROUTER_REASONING_MODEL,
+          process.env.ROUTER_REASONING_FALLBACK_MODEL,
+          process.env.ROUTER_REASONING_FALLBACK_MODEL_2,
+        ];
+
+  const filtered = values.filter((value): value is string => Boolean(value));
+  return filtered.length > 0 ? filtered : [undefined];
+}
+
 function hasGithubRepoUrl(query: string): boolean {
   return /https?:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/i.test(query);
 }
@@ -41,8 +95,30 @@ function includesAny(query: string, terms: string[]): boolean {
   return terms.some((term) => q.includes(term.toLowerCase()));
 }
 
+function isClearlyInsufficientEvidenceQuery(query: string): boolean {
+  const q = query.toLowerCase();
+
+  return (
+    q.includes("non-uploaded") ||
+    q.includes("private salary") ||
+    q.includes("unreleased api endpoint") ||
+    q.includes("exact unreleased") ||
+    q.includes("will launch next month")
+  );
+}
+
 export function routeScoutQuery(query: string): RouterDecision {
   const q = query.toLowerCase();
+
+  if (isClearlyInsufficientEvidenceQuery(query)) {
+    return {
+      tier: 1,
+      route: "direct_tool",
+      tool: "search_kb",
+      reason:
+        "Query asks for private/unreleased information; verify KB first and return insufficient evidence if unavailable.",
+    };
+  }
 
   if (hasGithubRepoUrl(query)) {
     return {
@@ -199,27 +275,85 @@ function extractEvidenceCoverage(value: unknown): Record<string, unknown> {
   );
 }
 
-async function callModelService(mode: "coding" | "reasoning", query: string): Promise<string> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function callModelServiceOnce(
+  mode: "coding" | "reasoning",
+  query: string,
+  model?: string,
+): Promise<string> {
   const response = await fetch(`${MODEL_SERVICE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       mode,
+      ...(model ? { model } : {}),
       messages: [{ role: "user", content: query }],
       temperature: mode === "coding" ? 0.2 : 0.4,
       top_p: 0.8,
-      max_tokens: 1600,
+      max_tokens: mode === "coding" ? 1200 : 900,
     }),
   });
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { rawText: text };
+  }
 
   if (!response.ok) {
     throw new Error(`model-service failed: ${response.status} ${text}`);
   }
 
   return String(data.content ?? "");
+}
+
+async function callModelService(
+  mode: "coding" | "reasoning",
+  query: string,
+): Promise<string> {
+  let lastError: unknown = null;
+
+  for (const model of modelCandidatesForMode(mode)) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await callModelServiceOnce(mode, query, model);
+      } catch (error) {
+        lastError = error;
+
+        if (!isRetryableModelError(error)) {
+          throw error;
+        }
+
+        await sleep(1_000 * Math.pow(2, attempt));
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(String(lastError));
 }
 
 async function callRlmRuntime(input: RouterAnswerInput): Promise<unknown> {
@@ -254,6 +388,38 @@ function notEnoughEvidenceAnswer(query: string): string {
   ].join("\n");
 }
 
+function partialResearchTimeoutResponse(
+  decision: RouterDecision,
+  error: unknown,
+) {
+  const reason = error instanceof Error ? error.message : String(error);
+
+  return {
+    status: "partial",
+    route: decision,
+    ui: {
+      answerMarkdown: [
+        "I could not complete web research within the time limit.",
+        "",
+        "I do not have enough evidence to answer this confidently.",
+        "",
+        `Reason: ${reason}`,
+      ].join("\n"),
+      citations: [],
+      evidenceCoverage: {
+        hasEvidence: false,
+        claimCount: 0,
+        supportedClaimCount: 0,
+        weakClaimCount: 0,
+        unsupportedClaimCount: 0,
+        missing: [reason],
+      },
+    },
+    answer: "I do not have enough evidence to answer this confidently.",
+    error: reason,
+  };
+}
+
 export async function answerWithRouter(input: RouterAnswerInput) {
   const decision = routeScoutQuery(input.query);
 
@@ -283,26 +449,34 @@ export async function answerWithRouter(input: RouterAnswerInput) {
   }
 
   if (decision.tool === "web_research") {
-    const result = await webResearch({
-      projectId: input.projectId,
-      query: input.query,
-      maxResults: 6,
-      maxPagesPerSource: 3,
-      maxTotalPages: 14,
-      maxDepth: 1,
-      useOrchestrator: true,
-    });
+    try {
+      const result = await withTimeout(
+        webResearch({
+          projectId: input.projectId,
+          query: input.query,
+          maxResults: ROUTER_RESEARCH_MAX_RESULTS,
+          maxPagesPerSource: ROUTER_RESEARCH_MAX_PAGES_PER_SOURCE,
+          maxTotalPages: ROUTER_RESEARCH_MAX_TOTAL_PAGES,
+          maxDepth: ROUTER_RESEARCH_MAX_DEPTH,
+          useOrchestrator: true,
+        }),
+        ROUTER_RESEARCH_TIMEOUT_MS,
+        "web_research",
+      );
 
-    return {
-      ...result,
-      route: decision,
-      ui: {
-        ...(result as any).ui,
-        answerMarkdown: extractAnswerText(result),
-        citations: extractCitations(result),
-        evidenceCoverage: extractEvidenceCoverage(result),
-      },
-    };
+      return {
+        ...result,
+        route: decision,
+        ui: {
+          ...(result as any).ui,
+          answerMarkdown: extractAnswerText(result),
+          citations: extractCitations(result),
+          evidenceCoverage: extractEvidenceCoverage(result),
+        },
+      };
+    } catch (error) {
+      return partialResearchTimeoutResponse(decision, error);
+    }
   }
 
   if (decision.tool === "search_kb") {
@@ -405,7 +579,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
     const result = await callRlmRuntime(input);
 
     return {
-      ...result,
+      ...(result as Record<string, unknown>),
       route: decision,
       ui: {
         ...(result as any).ui,
