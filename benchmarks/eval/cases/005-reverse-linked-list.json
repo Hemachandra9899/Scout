@@ -1,0 +1,14 @@
+{
+  "id": "coding-linked-list-001",
+  "query": "Reverse a linked list and explain time and space complexity",
+  "intent": "coding",
+  "expectedTier": 1,
+  "expectedTool": "direct_model",
+  "mustMention": ["prev", "current", "O(n)", "O(1)"],
+  "mustNotClaim": ["O(n^2)"],
+  "referenceAnswer": "Use three pointers such as prev, current, and next. Iterate through the list, reverse current.next to prev, then advance. Time complexity is O(n), space complexity is O(1).",
+  "minGroundedRatio": 0,
+  "minCorrectness": 0.7,
+  "minCompleteness": 0.7,
+  "maxLatencyMs": 60000
+}

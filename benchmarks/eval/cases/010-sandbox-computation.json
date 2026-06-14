@@ -1,0 +1,14 @@
+{
+  "id": "sandbox-computation-001",
+  "query": "Given numbers [5, 2, 9, 2, 5, 10], sort them, remove duplicates, and return the mean of the unique numbers",
+  "intent": "computation",
+  "expectedTier": 3,
+  "expectedTool": "sandbox",
+  "mustMention": ["2", "5", "9", "10", "6.5"],
+  "mustNotClaim": ["7.0", "6.0"],
+  "referenceAnswer": "The unique sorted numbers are [2, 5, 9, 10]. Their mean is (2 + 5 + 9 + 10) / 4 = 6.5.",
+  "minGroundedRatio": 0,
+  "minCorrectness": 0.8,
+  "minCompleteness": 0.8,
+  "maxLatencyMs": 60000
+}

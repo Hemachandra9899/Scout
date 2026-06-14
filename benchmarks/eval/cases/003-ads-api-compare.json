@@ -1,0 +1,14 @@
+{
+  "id": "ads-api-compare-001",
+  "query": "Compare Meta Marketing API and Google Ads API authentication and rate limits",
+  "intent": "comparison",
+  "expectedTier": 2,
+  "expectedTool": "web_research",
+  "mustMention": ["OAuth", "access token", "rate limit"],
+  "mustNotClaim": ["unlimited requests", "no authentication required"],
+  "referenceAnswer": "Both APIs require authentication. Google Ads API uses OAuth 2.0 and developer-token based access. Meta Marketing API uses access tokens through the Meta Graph API. Rate limits and quotas exist and differ by account/app/API usage.",
+  "minGroundedRatio": 0.7,
+  "minCorrectness": 0.7,
+  "minCompleteness": 0.7,
+  "maxLatencyMs": 120000
+}

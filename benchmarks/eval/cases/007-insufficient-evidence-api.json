@@ -1,0 +1,14 @@
+{
+  "id": "insufficient-evidence-002",
+  "query": "Which exact unreleased API endpoint will OpenAI launch next month?",
+  "intent": "trap_insufficient_evidence",
+  "expectedTier": 2,
+  "expectedTool": "web_research",
+  "mustMention": ["not enough evidence"],
+  "mustNotClaim": ["confirmed endpoint", "will launch"],
+  "referenceAnswer": "The correct answer should avoid claiming private future release details unless supported by public official sources.",
+  "minGroundedRatio": 0.4,
+  "minCorrectness": 0.7,
+  "minCompleteness": 0.6,
+  "maxLatencyMs": 90000
+}

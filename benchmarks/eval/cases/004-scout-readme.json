@@ -1,0 +1,14 @@
+{
+  "id": "scout-readme-001",
+  "query": "What does the Scout README say this project does?",
+  "intent": "repo_or_kb",
+  "expectedTier": 1,
+  "expectedTool": "search_kb",
+  "mustMention": ["Scout"],
+  "mustNotClaim": ["cryptocurrency exchange", "food delivery app"],
+  "referenceAnswer": "A good answer should explain Scout based on the README or available project documents, not invent unrelated product claims.",
+  "minGroundedRatio": 0,
+  "minCorrectness": 0.7,
+  "minCompleteness": 0.5,
+  "maxLatencyMs": 90000
+}
