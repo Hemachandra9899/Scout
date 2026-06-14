@@ -7,6 +7,7 @@ import { getFallbackMode, shouldRetry } from "./crawl-retry-policy.js";
 import type { ResourceCrawlTrace } from "./crawl-retry-policy.js";
 import { checkDedupe } from "./crawl-dedupe.js";
 import type { ResourceMemoryHint } from "./memory-ranking.js";
+import { researchConfig } from "./research-config.js";
 
 export type CrawlManagerInput = {
   projectId: string;
@@ -212,9 +213,14 @@ export async function crawlResearchSources(
   let totalDupeContentCount = 0;
   let totalQualityRejectCount = 0;
 
-  for (const resource of input.resources) {
-    if (pages.length >= maxTotalPages) break;
-
+  async function crawlSingleResource(
+    resource: RankedResource,
+  ): Promise<{
+    acceptedPages: CrawledResearchPage[];
+    resourceTrace: ResourceCrawlTrace;
+    hadContent: boolean;
+    blockedDomain: boolean;
+  }> {
     const resourceTrace: ResourceCrawlTrace = {
       resourceUrl: resource.url,
       tier: resource.tier,
@@ -229,24 +235,16 @@ export async function crawlResearchSources(
 
     const resourceDomain = extractDomain(resource.url);
     if (resourceDomain && blockedDomains.has(resourceDomain)) {
-      sourcesSkipped++;
-      blockedDomainCount++;
-      failed.push({
-        title: resource.title,
-        url: resource.url,
-        reason: `Domain blocked: ${resourceDomain} (known blocked from prior failures)`,
-      });
       resourceTrace.error = `Domain blocked: ${resourceDomain}`;
       resourceTrace.pagesFailed = 1;
-      resourceTraces.push(resourceTrace);
-      continue;
+      return { acceptedPages: [], resourceTrace, hadContent: false, blockedDomain: true };
     }
 
     let currentMode = modeForResource(resource);
     let resourceAcceptedCount = 0;
-    let resourceSkippedCount = 0;
-    let resourceFailedCount = 0;
     let resourceError: string | undefined;
+
+    const localAcceptedPages: CrawledResearchPage[] = [];
 
     for (let attempt = 0; attempt < 2 && currentMode; attempt++) {
       resourceTrace.modesPlanned.push(currentMode);
@@ -265,13 +263,11 @@ export async function crawlResearchSources(
         totalPagesCrawled += (crawl.pages ?? []).length;
 
         const result = processCrawlResult(
-          resource, crawl, pages, failed, skipped, maxTotalPages,
+          resource, crawl, localAcceptedPages, failed, skipped, maxTotalPages,
           seenCanonicalUrls, seenContentHashes
         );
 
         resourceAcceptedCount += result.accepted;
-        resourceSkippedCount += result.qualityRejectCount;
-        resourceFailedCount += result.failedCount;
         totalQualityRejectCount += result.qualityRejectCount;
         totalDupeUrlCount += result.dupeUrlCount;
         totalDupeContentCount += result.dupeContentCount;
@@ -334,15 +330,36 @@ export async function crawlResearchSources(
     }
 
     resourceTrace.pagesAccepted = resourceAcceptedCount;
-    resourceTrace.pagesSkipped = resourceSkippedCount;
-    resourceTrace.pagesFailed = resourceFailedCount;
     resourceTrace.error = resourceError;
-    resourceTraces.push(resourceTrace);
+    localAcceptedPages.forEach((p) => pages.push(p));
+    const hadContent = resourceAcceptedCount > 0;
 
-    if (resourceAcceptedCount > 0) {
-      sourcesWithContent++;
-    } else {
-      sourcesSkipped++;
+    return { acceptedPages: localAcceptedPages, resourceTrace, hadContent, blockedDomain: false };
+  }
+
+  const maxConcurrent = researchConfig.fastMode ? researchConfig.maxConcurrentCrawls : 1;
+
+  for (let i = 0; i < input.resources.length; i += maxConcurrent) {
+    if (pages.length >= maxTotalPages) break;
+
+    const batch = input.resources.slice(i, i + maxConcurrent);
+    const results = await Promise.all(batch.map((r) => crawlSingleResource(r)));
+
+    for (const result of results) {
+      resourceTraces.push(result.resourceTrace);
+      if (result.blockedDomain) {
+        blockedDomainCount++;
+        sourcesSkipped++;
+        failed.push({
+          title: result.resourceTrace.resourceUrl,
+          url: result.resourceTrace.resourceUrl,
+          reason: `Domain blocked: ${extractDomain(result.resourceTrace.resourceUrl)}`,
+        });
+      } else if (result.hadContent) {
+        sourcesWithContent++;
+      } else {
+        sourcesSkipped++;
+      }
     }
   }
 
