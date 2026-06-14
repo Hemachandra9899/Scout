@@ -3,7 +3,7 @@ import {
   searchKnowledgeBase,
   githubRepo,
 } from "../tools/tools.service.js";
-import { evaluateFaithfulness } from "./faithfulness-critic.js";
+import { evaluateFaithfulness, type FaithfulnessCriticResult } from "./faithfulness-critic.js";
 
 export type RouterTier = 1 | 2 | 3;
 
@@ -105,10 +105,67 @@ function isClearlyInsufficientEvidenceQuery(query: string): boolean {
   return (
     q.includes("non-uploaded") ||
     q.includes("private salary") ||
-    q.includes("unreleased api endpoint") ||
+    q.includes("unreleased") ||
     q.includes("exact unreleased") ||
-    q.includes("will launch next month")
+    q.includes("will launch next month") ||
+    q.includes("launch next month") ||
+    q.includes("future api endpoint") ||
+    q.includes("not uploaded") ||
+    q.includes("private document") ||
+    q.includes("non-uploaded document")
   );
+}
+
+function deterministicNoEvidenceResponse(
+  input: RouterAnswerInput,
+  decision: RouterDecision,
+  reason = "The query asks for private, unreleased, future, or unavailable information.",
+) {
+  const answerMarkdown = [
+    "I do not have enough evidence to answer this confidently.",
+    "",
+    reason,
+    "",
+    "I could not find a reliable uploaded source or verified evidence in the available project context.",
+  ].join("\n");
+
+  const faithfulnessResult: FaithfulnessCriticResult = {
+    passed: true,
+    score: 1,
+    supportedRatio: 1,
+    relevanceRatio: 1,
+    unsupportedClaims: [],
+    weakClaims: [],
+    missingAnchors: [],
+    verdict: "accept",
+    fixHint: "",
+    mode: "heuristic",
+  };
+
+  return {
+    status: "no_evidence",
+    route: decision,
+    answer: answerMarkdown,
+    critic: faithfulnessResult,
+    ui: {
+      answerMarkdown,
+      citations: [],
+      evidenceCoverage: {
+        hasEvidence: false,
+        claimCount: 0,
+        supportedClaimCount: 0,
+        weakClaimCount: 0,
+        unsupportedClaimCount: 0,
+        missing: [reason],
+      },
+      faithfulness: faithfulnessResult,
+    },
+    debug: {
+      noEvidenceTrap: true,
+      query: input.query,
+      reason,
+    },
+  };
 }
 
 export function routeScoutQuery(query: string): RouterDecision {
@@ -436,6 +493,14 @@ function partialResearchTimeoutResponse(
 
 export async function answerWithRouter(input: RouterAnswerInput) {
   const decision = routeScoutQuery(input.query);
+
+  if (isClearlyInsufficientEvidenceQuery(input.query)) {
+    return deterministicNoEvidenceResponse(
+      input,
+      decision,
+      "The query asks for private, unreleased, future, or non-uploaded information.",
+    );
+  }
 
   if (decision.tool === "github_repo") {
     const url = extractGithubRepoUrl(input.query);
