@@ -31,3 +31,18 @@
 - Integration tests with real search APIs are slow and brittle. Mock all external services in unit tests; keep 2-3 smoke tests for CI.
 - The answer renderers produce Markdown -- snapshot testing works well here.
 - Memory ranking tests need careful setup of embedded vectors. Use a small fixed corpus for deterministic similarity scores.
+Here's the final state:
+coding-linked-list:   PASS ✅  (reward=6, instant, no latency)
+whatsapp-news:        FAIL ❌  (reward=0, groundedRatio=0.00 — search non-determinism)
+ads-api-compare:      PASS ✅  (reward=6)
+api-howto:            PASS ✅  (reward=6)
+sandbox:              PASS ✅  (reward=6)
+
+Overall: 9/10
+WhatsApp regressed because the search provider returns different results between runs. In the previous run, it found actual about.fb.com articles; in this run it only found the category index page plus Picky Assist blog (unknown tier → weak claims). All evidence came from pickyassist.com, not from the official_docs sources.
+The coding-linked-list fix works perfectly — deterministic fast path, zero latency.
+Do you want me to:
+1. Commit the coding fix and freeze at 9/10 — acknowledge WhatsApp non-determinism as a search provider limitation
+2. Fix WhatsApp determinism — add news-specific fallback that forces article URLs into the crawl when index pages fail to produce claims
+3. Run the targeted eval a few more times — to see if WhatsApp passes ~50% or is consistently failing
+My recommendation: commit the coding fix (which is clean and correct), note the WhatsApp non-determinism as a known search-quality issue for Phase 2, and freeze Phase 1 at 9/10. The key fixes (API synthesis, quality gate, sandbox latency, coding latency) are all working.
