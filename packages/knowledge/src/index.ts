@@ -36,3 +36,5 @@ export * from "./research/crawl-retry-policy.js";
 export * from "./research/crawl-dedupe.js";
 export * from "./research/evidence-quality.js";
 export * from "./research/answer-grounding.js";
+export * from "./research/query-anchors.js";
+export * from "./research/source-relevance.js";

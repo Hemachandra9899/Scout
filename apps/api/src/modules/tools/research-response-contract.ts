@@ -28,6 +28,7 @@ type RawOrchestratorOutput = {
   crawlTrace: CrawlTrace;
   evidencePack: EvidencePack;
   answer: SynthesizedAnswer;
+  researchTrace: Array<{ name: string; ms: number; ok: boolean; error?: string }>;
 };
 
 export type RawContractFields = RawOrchestratorOutput;
@@ -76,6 +77,7 @@ export type ResearchResponseContract = RawOrchestratorOutput & {
       groundingAudit: GroundingAudit;
     };
     memories: Record<string, unknown>;
+    sourceRelevance: Record<string, unknown> | null;
   };
 };
 
@@ -85,6 +87,11 @@ export function buildResearchResponse(
   const { evidencePack, answer, crawlTrace, skippedCrawls, resourcesPlanned, memories } = raw;
 
   const warnings: string[] = [];
+
+  const sourceRelevanceTrace = raw.researchTrace?.find((t) => t.name === "source_relevance");
+  const sourceRelevance = sourceRelevanceTrace
+    ? { ok: sourceRelevanceTrace.ok, error: sourceRelevanceTrace.error }
+    : null;
 
   if (raw.failedCrawls && raw.failedCrawls.length > 0) {
     warnings.push(`${raw.failedCrawls.length} source(s) failed to crawl`);
@@ -160,6 +167,7 @@ export function buildResearchResponse(
         groundingAudit: answer.groundingAudit,
       },
       memories: memories ?? {},
+      sourceRelevance,
     },
   };
 }

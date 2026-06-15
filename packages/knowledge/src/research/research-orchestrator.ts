@@ -7,6 +7,12 @@ import { buildEvidencePack } from "./evidence-pack.js";
 import { synthesizeAnswerFromEvidencePack } from "./answer-synthesizer.js";
 import { researchConfig } from "./research-config.js";
 import { rerankEvidenceForQuery } from "./evidence-reranker.js";
+import { searchResourceCandidates } from "./search-provider.js";
+import {
+  extractQueryAnchors as extractQueryAnchorsModule,
+  buildFocusedResearchQueries,
+} from "./query-anchors.js";
+import { filterAndRankSourcesForQuery } from "./source-relevance.js";
 import type {
   EvidencePack,
   RankedResource,
@@ -54,17 +60,6 @@ export function createResearchTrace() {
   }
 
   return { stages, aborted, timed };
-}
-
-function extractQueryAnchors(query: string): string[] {
-  const known = [
-    "WhatsApp", "Google Ads API", "Google Ads", "Meta Marketing API",
-    "Meta", "OAuth", "access token", "developer token", "rate limit",
-    "rate limits", "authentication",
-  ];
-
-  const q = query.toLowerCase();
-  return known.filter((item) => q.includes(item.toLowerCase()));
 }
 
 export type ResearchOrchestratorInput = {
@@ -229,11 +224,161 @@ export class ResearchOrchestrator {
 
     const mergedResources = mergeResources(allResourceBatches).slice(0, maxSources);
 
+    let sourceRelevance = filterAndRankSourcesForQuery(mergedResources, input.query, {
+      topK: researchConfig.fastMode ? 4 : 8,
+      minScore: 2,
+    });
+
+    let resourcesToCrawl = sourceRelevance.sources;
+
+    if (!sourceRelevance.report.passed || resourcesToCrawl.length === 0) {
+      const focusedQueries = buildFocusedResearchQueries(input.query);
+      const extraQueries = focusedQueries.filter((q) => q.toLowerCase() !== input.query.toLowerCase());
+
+      if (extraQueries.length > 0) {
+        const extraResourceBatches: RankedResource[][] = [];
+
+        for (const focusedQuery of extraQueries) {
+          const batch = await trace.timed(`plan_resources:${focusedQuery.slice(0, 40)}`, () =>
+            planResources({
+              query: focusedQuery,
+              maxSources: Math.max(3, Math.ceil(maxSources / Math.max(extraQueries.length, 1))),
+              memoryHints: rankingMemories,
+            }),
+          researchConfig.stageTimeoutMs);
+
+          for (const resource of batch.resources) {
+            if (!resource.matchedBy) resource.matchedBy = [];
+            resource.matchedBy.push(`focused:${focusedQuery}`);
+          }
+
+          extraResourceBatches.push(batch.resources);
+        }
+
+        const extraMerged = mergeResources(extraResourceBatches);
+        const allWithFocused = [...mergedResources, ...extraMerged];
+
+        sourceRelevance = filterAndRankSourcesForQuery(allWithFocused, input.query, {
+          topK: researchConfig.fastMode ? 4 : 8,
+          minScore: 2,
+        });
+
+        resourcesToCrawl = sourceRelevance.sources;
+      }
+    }
+
+    if (resourcesToCrawl.length === 0 || (!sourceRelevance.report.passed && mergedResources.length > 0)) {
+      return {
+        status: "partial",
+        query: input.query,
+        normalizedQuery: plan.normalizedQuery,
+        subqueries: subqueries.map((sq) => ({
+          query: sq.query,
+          reason: sq.reason,
+          priority: sq.priority,
+        })),
+        plan,
+        resourcesPlanned: mergedResources.map((resource) => ({
+          title: resource.title,
+          url: resource.url,
+          tier: resource.tier,
+          score: resource.score,
+          source: resource.source,
+          reason: resource.reason,
+          matchedBy: resource.matchedBy,
+          ...(resource.metadata && Object.keys(resource.metadata).length > 0 ? { metadata: resource.metadata } : {}),
+        })),
+        memories: {
+          retrieved: retrievedMemoryCount,
+          written: 0,
+          usedForRanking: rankingMemories.length,
+          planned: { sourceQuality: 0, sourceFailure: 0, durableFact: 0 },
+        },
+        documents: [],
+        failedCrawls: [],
+        skippedCrawls: [],
+        crawlTrace: {
+          totalPagesCrawled: 0,
+          acceptedPages: 0,
+          skippedPages: 0,
+          rejectedByQuality: 0,
+          rejectedByDuplicateUrl: 0,
+          rejectedByDuplicateContent: 0,
+          sourcesWithContent: 0,
+          sourcesSkipped: 0,
+          retryCount: 0,
+          blockedDomainCount: 0,
+          resourceTraces: [],
+        },
+        evidencePack: {
+          query: input.query,
+          useCase: "general_research",
+          resourcesPlanned: mergedResources,
+          evidence: [],
+          citationVerification: [],
+          coverage: {
+            hasEvidence: false,
+            sourceCount: 0,
+            claimCount: 0,
+            uniqueSourceCount: 0,
+            officialSourceCount: 0,
+            supportedClaimCount: 0,
+            weakClaimCount: 0,
+            unsupportedClaimCount: 0,
+            rawClaimCount: 0,
+            filteredClaimCount: 0,
+            qualityRejectedClaimCount: 0,
+            duplicateRejectedClaimCount: 0,
+            missing: sourceRelevance.report.missingRequiredGroups,
+          },
+        },
+        answer: {
+          status: "insufficient_evidence",
+          mode: "research_summary",
+          markdown: [
+            "I do not have enough relevant evidence to answer this confidently.",
+            "",
+            sourceRelevance.report.missingRequiredGroups.length > 0
+              ? `Missing required source coverage: ${sourceRelevance.report.missingRequiredGroups.join(", ")}`
+              : "No sufficiently relevant sources were found.",
+          ].join("\n"),
+          citations: [],
+          usedEvidenceCount: 0,
+          supportedEvidenceCount: 0,
+          weakEvidenceCount: 0,
+          omittedUnsupportedCount: 0,
+          confidence: 0,
+          groundingAudit: {
+            status: "fail",
+            citationIdsReferenced: [],
+            citationIdsDeclared: [],
+            missingCitationIds: [],
+            unusedCitationIds: [],
+            unsupportedCitationIds: [],
+            groundedClaimCount: 0,
+            issueCount: 1,
+            issues: ["No relevant sources passed the relevance gate"],
+          },
+        },
+        researchTrace: [
+          ...trace.stages,
+          {
+            name: "source_relevance",
+            ms: 0,
+            ok: false,
+            error: sourceRelevance.report.missingRequiredGroups.length > 0
+              ? `Missing: ${sourceRelevance.report.missingRequiredGroups.join(", ")}`
+              : "No relevant sources",
+          },
+        ],
+      };
+    }
+
     const crawl = await trace.timed("crawl", () =>
       crawlResearchSources({
         projectId: input.projectId,
         query: plan.normalizedQuery,
-        resources: mergedResources,
+        resources: resourcesToCrawl,
         memoryHints: rankingMemories,
         maxPagesPerSource:
           input.maxPagesPerSource ?? plan.recommendedMaxPagesPerSource ?? 3,
@@ -303,7 +448,7 @@ export class ResearchOrchestrator {
       })),
     researchConfig.stageTimeoutMs);
 
-    const queryAnchors = extractQueryAnchors(input.query);
+    const queryAnchors = extractQueryAnchorsModule(input.query);
     const anchorContext = queryAnchors.length > 0
       ? `The answer must directly address the user query.\nIf these query anchors are provided, explicitly cover them when evidence is available:\n${queryAnchors.join(", ")}\n\nIf evidence for an anchor is missing, say so instead of omitting it.\nDo not answer with unrelated content.`
       : "";

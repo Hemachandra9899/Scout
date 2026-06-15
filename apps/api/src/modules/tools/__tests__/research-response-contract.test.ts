@@ -78,6 +78,7 @@ const baseInput = {
   crawlTrace: baseCrawlTrace,
   evidencePack: baseEvidencePack,
   answer: baseAnswer,
+  researchTrace: [],
 };
 
 describe("buildResearchResponse", () => {

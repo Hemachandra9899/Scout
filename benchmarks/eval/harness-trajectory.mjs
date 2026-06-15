@@ -39,6 +39,10 @@ export function buildTrajectory({ caseItem, response, row }) {
         citations: ui?.citations ?? [],
         evidenceCoverage,
         researchTrace: extractResearchTrace(response),
+        sourceRelevance:
+          response?.debug?.sourceRelevance ??
+          response?.rawToolResult?.debug?.sourceRelevance ??
+          null,
       },
       {
         type: "critic_verdict",

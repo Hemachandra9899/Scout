@@ -118,6 +118,10 @@ async function main() {
       }
     }
 
+    if (toolEvent?.sourceRelevance) {
+      lines.push(`  - sourceRelevance: ${JSON.stringify(toolEvent.sourceRelevance)}`);
+    }
+
     const trace = safeArray(toolEvent?.researchTrace);
     if (trace.length > 0) {
       lines.push("  - researchTrace:");
