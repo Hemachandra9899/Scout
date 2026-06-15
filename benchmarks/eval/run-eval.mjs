@@ -2,6 +2,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { computeReward } from "./harness-reward.mjs";
+import { buildTrajectory } from "./harness-trajectory.mjs";
 
 const PROJECT_ID = process.env.EVAL_PROJECT_ID || process.env.BENCHMARK_PROJECT_ID || "benchmark-project";
 const EVAL_TARGET = process.env.EVAL_TARGET || "rlm";
@@ -55,6 +57,7 @@ function rowsToCsv(rows) {
     "mustNotClaimPassed",
     "latencyPassed",
     "durationMs",
+    "reward",
   ];
 
   return [
@@ -77,14 +80,15 @@ function rowsToMarkdown(rows, aggregate) {
   lines.push(`- Mean correctness: ${aggregate.meanCorrectness.toFixed(3)}`);
   lines.push(`- Mean completeness: ${aggregate.meanCompleteness.toFixed(3)}`);
   lines.push(`- Mean latency: ${Math.round(aggregate.meanLatencyMs)} ms`);
+  lines.push(`- Mean reward: ${aggregate.meanReward.toFixed(2)}`);
   lines.push("");
 
-  lines.push("| Case | Pass | Route | Tool | Grounded | Correct | Complete | Latency | Failures |");
-  lines.push("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |");
+  lines.push("| Case | Pass | Reward | Route | Tool | Grounded | Correct | Complete | Latency | Failures |");
+  lines.push("| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- |");
 
   for (const row of rows) {
     lines.push(
-      `| ${row.id} | ${row.passed ? "✅" : "❌"} | ${row.actualTier ?? "?"}/${row.expectedTier ?? "?"} | ${row.actualTool ?? "?"}/${row.expectedTool ?? "?"} | ${row.groundedRatio.toFixed(2)} | ${row.correctness.toFixed(2)} | ${row.completeness.toFixed(2)} | ${row.durationMs} | ${row.failures} |`
+      `| ${row.id} | ${row.passed ? "✅" : "❌"} | ${row.reward ?? ""} | ${row.actualTier ?? "?"}/${row.expectedTier ?? "?"} | ${row.actualTool ?? "?"}/${row.expectedTool ?? "?"} | ${row.groundedRatio.toFixed(2)} | ${row.correctness.toFixed(2)} | ${row.completeness.toFixed(2)} | ${row.durationMs} | ${row.failures} |`
     );
   }
 
@@ -102,6 +106,25 @@ function rowsToMarkdown(rows, aggregate) {
   }
 
   return lines.join("\n");
+}
+
+function parseCaseIdsFilter() {
+  const raw = process.env.EVAL_CASE_IDS;
+  if (!raw) return null;
+  return new Set(
+    raw
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+  );
+}
+
+function caseMatchesFilter(caseItem, filter) {
+  if (!filter) return true;
+  return (
+    filter.has(caseItem.id) ||
+    [...filter].some((id) => caseItem.id.includes(id))
+  );
 }
 
 async function readJson(filePath) {
@@ -487,6 +510,8 @@ function evaluateCase(caseItem, response, answer, durationMs, judge) {
     actualTier,
     expectedTool,
     actualTool,
+    minGroundedRatio: Number(caseItem.minGroundedRatio ?? 0),
+    maxLatencyMs: Number(caseItem.maxLatencyMs ?? 180_000),
     routingPassed,
     groundedRatio,
     supportedClaimCount: supported,
@@ -515,7 +540,12 @@ function evaluateCase(caseItem, response, answer, durationMs, judge) {
 async function main() {
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
 
-  const cases = await loadCases();
+  let cases = await loadCases();
+  const caseFilter = parseCaseIdsFilter();
+  if (caseFilter) {
+    cases = cases.filter((caseItem) => caseMatchesFilter(caseItem, caseFilter));
+    console.log(`Case filter: ${process.env.EVAL_CASE_IDS} → ${cases.length} cases`);
+  }
   const startedAt = new Date().toISOString();
 
   console.log(`Running ${cases.length} eval cases`);
@@ -551,24 +581,33 @@ async function main() {
       const durationMs = Date.now() - started;
       const row = evaluateCase(caseItem, response, answer, durationMs, judge);
 
-      rows.push(row);
+      const rewardResult = computeReward(row);
+      row.reward = rewardResult.reward;
+      row.rewardReasons = rewardResult.reasons;
 
-      await fs.writeFile(
-        responsePath,
-        JSON.stringify(
-          {
-            case: caseItem,
-            row,
-            judge,
-            response,
-          },
-          null,
-          2,
-        ),
+      const trajectory = buildTrajectory({
+        caseItem,
+        response,
+        row,
+      });
+
+      const trajectoryPath = path.join(
+        OUTPUT_DIR,
+        `${String(index + 1).padStart(2, "0")}-${id}.trajectory.json`,
       );
 
+      rows.push(row);
+
+      await Promise.all([
+        fs.writeFile(
+          responsePath,
+          JSON.stringify({ case: caseItem, row, judge, response }, null, 2),
+        ),
+        fs.writeFile(trajectoryPath, JSON.stringify(trajectory, null, 2)),
+      ]);
+
       console.log(
-        `${row.passed ? "PASS" : "FAIL"} | tier=${row.actualTier}/${row.expectedTier} | tool=${row.actualTool}/${row.expectedTool} | grounded=${row.groundedRatio.toFixed(2)} | correct=${row.correctness.toFixed(2)} | complete=${row.completeness.toFixed(2)} | ${row.failures}`,
+        `${row.passed ? "PASS" : "FAIL"} | reward=${row.reward} | tier=${row.actualTier}/${row.expectedTier} | tool=${row.actualTool}/${row.expectedTool} | grounded=${row.groundedRatio.toFixed(2)} | correct=${row.correctness.toFixed(2)} | complete=${row.completeness.toFixed(2)} | ${row.failures}`,
       );
     } catch (error) {
       const durationMs = Date.now() - started;
@@ -582,6 +621,8 @@ async function main() {
         actualTier: null,
         expectedTool: caseItem.expectedTool ?? null,
         actualTool: null,
+        minGroundedRatio: Number(caseItem.minGroundedRatio ?? 0),
+        maxLatencyMs: Number(caseItem.maxLatencyMs ?? 180_000),
         routingPassed: false,
         groundedRatio: 0,
         supportedClaimCount: 0,
@@ -601,14 +642,55 @@ async function main() {
         answerPreview: "",
       };
 
-      rows.push(row);
+      const rewardResult = computeReward(row);
+      row.reward = rewardResult.reward;
+      row.rewardReasons = rewardResult.reasons;
 
-      await fs.writeFile(
-        responsePath,
-        JSON.stringify({ case: caseItem, error: message }, null, 2),
+      const trajectoryPath = path.join(
+        OUTPUT_DIR,
+        `${String(index + 1).padStart(2, "0")}-${id}.trajectory.json`,
       );
 
-      console.log(`FAIL | ${message}`);
+      rows.push(row);
+
+      await Promise.all([
+        fs.writeFile(
+          responsePath,
+          JSON.stringify({ case: caseItem, error: message }, null, 2),
+        ),
+        fs.writeFile(
+          trajectoryPath,
+          JSON.stringify(
+            {
+              caseId: id,
+              query: caseItem.query,
+              expected: {
+                tier: caseItem.expectedTier,
+                tool: caseItem.expectedTool,
+              },
+              trajectory: [
+                { type: "route_decision", tier: null, tool: null, reason: null },
+                { type: "tool_result", tool: null, status: "error", citations: [], evidenceCoverage: {} },
+                { type: "critic_verdict", verdict: null, score: null },
+                { type: "final_answer", answerPreview: "" },
+              ],
+              metrics: {
+                passed: false,
+                routingPassed: false,
+                groundedRatio: 0,
+                correctness: 0,
+                completeness: 0,
+                latencyMs: durationMs,
+                failures: `request_error:${message}`,
+              },
+            },
+            null,
+            2,
+          ),
+        ),
+      ]);
+
+      console.log(`FAIL | reward=${row.reward} | ${message}`);
     }
   }
 
@@ -627,6 +709,7 @@ async function main() {
     meanCorrectness: rows.length ? rows.reduce((sum, row) => sum + row.correctness, 0) / rows.length : 0,
     meanCompleteness: rows.length ? rows.reduce((sum, row) => sum + row.completeness, 0) / rows.length : 0,
     meanLatencyMs: rows.length ? rows.reduce((sum, row) => sum + row.durationMs, 0) / rows.length : 0,
+    meanReward: rows.length ? rows.reduce((sum, row) => sum + Number(row.reward ?? 0), 0) / rows.length : 0,
   };
 
   const summary = { aggregate, rows };

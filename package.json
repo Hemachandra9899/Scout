@@ -28,7 +28,8 @@
     "typecheck:web": "npm --workspace apps/web run typecheck",
     "benchmark:research": "node benchmarks/run-research-benchmark.mjs",
     "eval": "node benchmarks/eval/run-eval.mjs",
-    "eval:ci": "EVAL_FAIL_UNDER=0.7 node benchmarks/eval/run-eval.mjs"
+    "eval:ci": "EVAL_FAIL_UNDER=0.7 node benchmarks/eval/run-eval.mjs",
+    "eval:analyze": "node benchmarks/eval/analyze-run.mjs"
   },
   "devDependencies": {
     "prisma": "^6.1.0"
