@@ -11,20 +11,27 @@ import { searchResourceCandidates } from "./search-provider.js";
 import {
   extractQueryAnchors as extractQueryAnchorsModule,
   buildFocusedResearchQueries,
+  missingRequiredSynthesisGroups,
+  buildApiSynthesisTemplate,
 } from "./query-anchors.js";
 import { filterAndRankSourcesForQuery } from "./source-relevance.js";
+import { buildNewsQueryPlan, isNewsLikeQuery } from "./news-query-planner.js";
+import { rankResourceCandidates, isFreshnessRequired } from "./source-ranker.js";
+import { officialSourceSeedsForQuery } from "./official-source-catalog.js";
+import { seededResourcesFromUrls } from "./seeded-resources.js";
 import type {
   EvidencePack,
   RankedResource,
   SynthesizedAnswer,
 } from "./source-types.js";
 
-export type ResearchStageTrace = {
-  name: string;
-  ms: number;
-  ok: boolean;
-  error?: string;
-};
+    export type ResearchStageTrace = {
+      name: string;
+      ms: number;
+      ok: boolean;
+      error?: string;
+      data?: Record<string, unknown>;
+    };
 
 export function createResearchTrace() {
   const stages: ResearchStageTrace[] = [];
@@ -195,8 +202,10 @@ export class ResearchOrchestrator {
       ["source_quality", "source_failure", "durable_fact"].includes(memory.kind)
     );
 
-    const maxSources =
-      input.maxSources ?? plan.recommendedMaxSources ?? 8;
+    const maxSources = Math.max(
+      6,
+      input.maxSources ?? plan.recommendedMaxSources ?? 8,
+    );
 
     const subqueries = plan.subqueries;
 
@@ -222,6 +231,51 @@ export class ResearchOrchestrator {
       allResourceBatches.push(resourcePlan.resources);
     }
 
+    const newsPlan = buildNewsQueryPlan(input.query);
+
+    if (newsPlan.isNewsQuery) {
+      const newsBatchQueries = newsPlan.queries.slice(0, researchConfig.fastMode ? 4 : 6);
+
+      for (const newsQuery of newsBatchQueries) {
+        const candidates = await trace.timed(`resources:news:${newsQuery.slice(0, 40)}`, () =>
+          searchResourceCandidates(newsQuery, 5, {
+            freshnessRequired: isFreshnessRequired(newsQuery),
+          }),
+        researchConfig.stageTimeoutMs);
+
+        const ranked = rankResourceCandidates(newsQuery, candidates, {
+          maxSources: Math.max(3, Math.ceil(maxSources / Math.max(newsBatchQueries.length, 1))),
+          minScore: 25,
+          memoryHints: rankingMemories,
+          maxPerDomain: 2,
+          freshnessRequired: isFreshnessRequired(newsQuery),
+        });
+
+        for (const resource of ranked) {
+          if (!resource.matchedBy) resource.matchedBy = [];
+          resource.matchedBy.push(`news:${newsQuery}`);
+          resource.score += 300;
+        }
+
+        allResourceBatches.push(ranked);
+      }
+    }
+
+    const officialSeedsList = officialSourceSeedsForQuery(input.query);
+    
+    if (officialSeedsList.length > 0) {
+      const seededResources: RankedResource[] = officialSeedsList.flatMap((seed) => {
+        const urls = seed.urls ?? [];
+        return seededResourcesFromUrls(urls, seed.label).map((r) => ({
+          ...r,
+          score: 1000,
+          matchedBy: [r.matchedBy?.[0] ?? `seed:${seed.label}`],
+        }));
+      });
+
+      allResourceBatches.push(seededResources);
+    }
+
     const mergedResources = mergeResources(allResourceBatches).slice(0, maxSources);
 
     let sourceRelevance = filterAndRankSourcesForQuery(mergedResources, input.query, {
@@ -232,7 +286,9 @@ export class ResearchOrchestrator {
     let resourcesToCrawl = sourceRelevance.sources;
 
     if (!sourceRelevance.report.passed || resourcesToCrawl.length === 0) {
-      const focusedQueries = buildFocusedResearchQueries(input.query);
+      const focusedQueries = newsPlan.isNewsQuery
+        ? newsPlan.queries
+        : buildFocusedResearchQueries(input.query);
       const extraQueries = focusedQueries.filter((q) => q.toLowerCase() !== input.query.toLowerCase());
 
       if (extraQueries.length > 0) {
@@ -369,6 +425,7 @@ export class ResearchOrchestrator {
             error: sourceRelevance.report.missingRequiredGroups.length > 0
               ? `Missing: ${sourceRelevance.report.missingRequiredGroups.join(", ")}`
               : "No relevant sources",
+            data: { report: sourceRelevance.report },
           },
         ],
       };
@@ -449,9 +506,13 @@ export class ResearchOrchestrator {
     researchConfig.stageTimeoutMs);
 
     const queryAnchors = extractQueryAnchorsModule(input.query);
-    const anchorContext = queryAnchors.length > 0
-      ? `The answer must directly address the user query.\nIf these query anchors are provided, explicitly cover them when evidence is available:\n${queryAnchors.join(", ")}\n\nIf evidence for an anchor is missing, say so instead of omitting it.\nDo not answer with unrelated content.`
-      : "";
+    const apiTemplate = buildApiSynthesisTemplate(input.query);
+    const anchorContext = [
+      queryAnchors.length > 0
+        ? `The answer must directly address the user query.\nIf these query anchors are provided, explicitly cover them when evidence is available:\n${queryAnchors.join(", ")}\n\nIf evidence for an anchor is missing, say so instead of omitting it.\nDo not answer with unrelated content.`
+        : "",
+      apiTemplate,
+    ].filter(Boolean).join("\n\n");
 
     const answer = await trace.timed("synthesize", () =>
       Promise.resolve(synthesizeAnswerFromEvidencePack({
@@ -463,6 +524,57 @@ export class ResearchOrchestrator {
         maxClaims: 10,
       })),
     researchConfig.stageTimeoutMs);
+
+    const missingGroups = missingRequiredSynthesisGroups(answer.markdown, input.query);
+    if (missingGroups.length > 0) {
+      const focusedQuery = [
+        input.query,
+        "",
+        `The previous answer missed these required sections: ${missingGroups.join(", ")}.`,
+        "Answer with explicit sections for each:",
+        ...missingGroups.map((g) => `- ${g}: (state evidence or 'Evidence not found')`),
+        "",
+        "If evidence is missing for a section, say 'Evidence not found' for that section.",
+      ].join("\n");
+
+      const retryAnswer = await trace.timed("synthesize_retry", () =>
+        Promise.resolve(synthesizeAnswerFromEvidencePack({
+          query: `${focusedQuery}\n\n${anchorContext}`.trim(),
+          evidencePack: {
+            ...evidencePack,
+            evidence: rerankedEvidence,
+          },
+          maxClaims: 10,
+        })),
+      researchConfig.stageTimeoutMs);
+
+      const retryMissingGroups = missingRequiredSynthesisGroups(retryAnswer.markdown, input.query);
+
+      if (retryMissingGroups.length < missingGroups.length) {
+        answer.markdown = retryAnswer.markdown;
+        answer.citations = retryAnswer.citations;
+        answer.usedEvidenceCount = retryAnswer.usedEvidenceCount;
+        answer.supportedEvidenceCount = retryAnswer.supportedEvidenceCount;
+        answer.weakEvidenceCount = retryAnswer.weakEvidenceCount;
+        answer.groundingAudit = retryAnswer.groundingAudit;
+        answer.confidence = retryAnswer.confidence;
+        if (retryMissingGroups.length > 0 && retryAnswer.status === "answered") {
+          answer.status = "partial";
+        }
+      }
+
+      const finalMissing = missingRequiredSynthesisGroups(answer.markdown, input.query);
+      if (finalMissing.length > 0) {
+        answer.status = "partial";
+        answer.markdown = [
+          "I found some evidence, but the answer is incomplete.",
+          "",
+          `Missing required sections: ${finalMissing.join(", ")}`,
+          "",
+          answer.markdown,
+        ].join("\n");
+      }
+    }
 
     if (researchConfig.fastMode) {
       return {

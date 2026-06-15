@@ -186,8 +186,8 @@ function confidenceForTier(tier: SourceTier): number {
   if (tier === "trusted_docs") return 0.84;
   if (tier === "reference_examples") return 0.7;
   if (tier === "community") return 0.55;
-  if (tier === "media") return 0.5;
-  return 0.6;
+  if (tier === "media") return 0.75;
+  return 0.65;
 }
 
 function sectionConfidenceBoost(sectionHeading: string): number {

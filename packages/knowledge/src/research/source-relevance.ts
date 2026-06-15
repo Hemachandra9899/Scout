@@ -2,6 +2,14 @@ import type {
   AnchorGroup,
 } from "./query-anchors.js";
 import { requiredAnchorGroupsForQuery } from "./query-anchors.js";
+import { buildNewsQueryPlan, isNewsLikeQuery } from "./news-query-planner.js";
+
+export type GroupCoverage = {
+  label: string;
+  required: boolean;
+  covered: boolean;
+  terms: string[];
+};
 
 export type SourceRelevanceReport = {
   passed: boolean;
@@ -9,6 +17,7 @@ export type SourceRelevanceReport = {
   rejectedCount: number;
   missingRequiredGroups: string[];
   coveredGroups: string[];
+  groupCoverage: GroupCoverage[];
 };
 
 function sourceText(source: any): string {
@@ -31,7 +40,54 @@ function groupCovered(text: string, group: AnchorGroup): boolean {
   return group.terms.some((term) => text.includes(term.toLowerCase()));
 }
 
+function newsTopicCovered(source: any, query: string): boolean {
+  const plan = buildNewsQueryPlan(query);
+  if (!plan.isNewsQuery) return true;
+
+  const topicTerms = plan.topic
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((term) => term.length >= 3);
+
+  const haystack = sourceText(source);
+  return topicTerms.length === 0 || topicTerms.some((term) => haystack.includes(term));
+}
+
+function scoreNewsSourceForQuery(source: any, query: string): number {
+  const plan = buildNewsQueryPlan(query);
+  const haystack = sourceText(source);
+
+  const topicTerms = plan.topic
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((term) => term.length >= 3);
+
+  const topicHits = topicTerms.filter((term) => haystack.includes(term)).length;
+
+  const freshnessHits = plan.freshness.queryTerms.filter((term) =>
+    haystack.includes(term.toLowerCase()),
+  ).length;
+
+  const newsBoost =
+    haystack.includes("news") ||
+    haystack.includes("reuters") ||
+    haystack.includes("apnews") ||
+    haystack.includes("associated press") ||
+    haystack.includes("theverge") ||
+    haystack.includes("techcrunch") ||
+    haystack.includes("bbc") ||
+    haystack.includes("cnn") ||
+    haystack.includes("official")
+      ? 2
+      : 0;
+
+  return topicHits * 5 + freshnessHits * 2 + newsBoost;
+}
+
 export function scoreSourceForQuery(source: any, query: string): number {
+  if (isNewsLikeQuery(query)) {
+    return scoreNewsSourceForQuery(source, query);
+  }
   const haystack = sourceText(source);
   const qTerms = query
     .toLowerCase()
@@ -57,11 +113,44 @@ export function scoreSourceForQuery(source: any, query: string): number {
   return queryHits + anchorHits * 4 + officialBoost;
 }
 
+function coverageByGroup(sources: any[], groups: AnchorGroup[]): GroupCoverage[] {
+  const joined = sources.map(sourceText).join("\n");
+  return groups.map((group) => ({
+    label: group.label,
+    required: group.required,
+    covered: groupCovered(joined, group),
+    terms: group.terms,
+  }));
+}
+
+function newsCoverageByGroup(sources: any[], plan: import("./news-query-planner.js").NewsQueryPlan): GroupCoverage[] {
+  const topicTerms = plan.topic
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((term) => term.length >= 3);
+
+  const joined = sources.map(sourceText).join("\n");
+  const topicCovered = topicTerms.length === 0 || topicTerms.some((term) => joined.includes(term));
+
+  return [
+    {
+      label: plan.topic || "news topic",
+      required: true,
+      covered: topicCovered,
+      terms: topicTerms,
+    },
+  ];
+}
+
 export function filterAndRankSourcesForQuery(
   sources: any[],
   query: string,
   opts: { topK?: number; minScore?: number } = {},
 ): { sources: any[]; report: SourceRelevanceReport } {
+  if (isNewsLikeQuery(query)) {
+    return filterAndRankNewsSources(sources, query, opts);
+  }
+
   const topK = opts.topK ?? 6;
   const minScore = opts.minScore ?? 2;
   const groups = requiredAnchorGroupsForQuery(query);
@@ -90,6 +179,8 @@ export function filterAndRankSourcesForQuery(
     .filter((group) => groupCovered(selectedText, group))
     .map((group) => group.label);
 
+  const groupCoverage = coverageByGroup(selected, groups);
+
   return {
     sources: selected,
     report: {
@@ -98,6 +189,45 @@ export function filterAndRankSourcesForQuery(
       rejectedCount: Math.max(0, sources.length - selected.length),
       missingRequiredGroups,
       coveredGroups,
+      groupCoverage,
+    },
+  };
+}
+
+function filterAndRankNewsSources(
+  sources: any[],
+  query: string,
+  opts: { topK?: number; minScore?: number } = {},
+): { sources: any[]; report: SourceRelevanceReport } {
+  const topK = opts.topK ?? 6;
+  const minScore = 3;
+  const plan = buildNewsQueryPlan(query);
+
+  const scored = sources
+    .map((source) => ({
+      source,
+      score: scoreSourceForQuery(source, query),
+      text: sourceText(source),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const selected = scored
+    .filter((item) => item.score >= minScore && newsTopicCovered(item.source, query))
+    .slice(0, topK)
+    .map((item) => item.source);
+
+  const groupCoverage = newsCoverageByGroup(selected, plan);
+  const missingTopic = groupCoverage.filter((g) => g.required && !g.covered);
+
+  return {
+    sources: selected,
+    report: {
+      passed: selected.length > 0 && missingTopic.length === 0,
+      selectedCount: selected.length,
+      rejectedCount: Math.max(0, sources.length - selected.length),
+      missingRequiredGroups: selected.length > 0 ? missingTopic.map((g) => g.label) : [plan.topic || "relevant news"],
+      coveredGroups: groupCoverage.filter((g) => g.covered).map((g) => g.label),
+      groupCoverage,
     },
   };
 }

@@ -110,7 +110,7 @@ function processCrawlResult(
     if (pages.length >= maxTotalPages) break;
     if (!page.markdown?.trim()) continue;
 
-    const quality = scorePageQuality(page.markdown);
+    const quality = scorePageQuality(page.markdown, resource.tier);
 
     if (quality.status === "reject") {
       skipped.push({

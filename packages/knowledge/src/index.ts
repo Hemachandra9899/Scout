@@ -38,3 +38,6 @@ export * from "./research/evidence-quality.js";
 export * from "./research/answer-grounding.js";
 export * from "./research/query-anchors.js";
 export * from "./research/source-relevance.js";
+export * from "./research/news-query-planner.js";
+export * from "./research/official-source-catalog.js";
+export * from "./research/seeded-resources.js";

@@ -120,6 +120,16 @@ async function main() {
 
     if (toolEvent?.sourceRelevance) {
       lines.push(`  - sourceRelevance: ${JSON.stringify(toolEvent.sourceRelevance)}`);
+
+      const groups = toolEvent.sourceRelevance.groupCoverage;
+      if (Array.isArray(groups) && groups.length > 0) {
+        lines.push("  - source groups:");
+        for (const group of groups) {
+          lines.push(
+            `    - ${group.label}: ${group.covered ? "covered" : "missing"}${group.required ? " required" : ""}`,
+          );
+        }
+      }
     }
 
     const trace = safeArray(toolEvent?.researchTrace);

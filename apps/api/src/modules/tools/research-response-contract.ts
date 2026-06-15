@@ -28,7 +28,7 @@ type RawOrchestratorOutput = {
   crawlTrace: CrawlTrace;
   evidencePack: EvidencePack;
   answer: SynthesizedAnswer;
-  researchTrace: Array<{ name: string; ms: number; ok: boolean; error?: string }>;
+  researchTrace: Array<{ name: string; ms: number; ok: boolean; error?: string; data?: Record<string, unknown> }>;
 };
 
 export type RawContractFields = RawOrchestratorOutput;
@@ -90,7 +90,13 @@ export function buildResearchResponse(
 
   const sourceRelevanceTrace = raw.researchTrace?.find((t) => t.name === "source_relevance");
   const sourceRelevance = sourceRelevanceTrace
-    ? { ok: sourceRelevanceTrace.ok, error: sourceRelevanceTrace.error }
+    ? {
+        ok: sourceRelevanceTrace.ok,
+        error: sourceRelevanceTrace.error,
+        ...(sourceRelevanceTrace.data?.report
+          ? { groupCoverage: (sourceRelevanceTrace.data.report as any).groupCoverage }
+          : {}),
+      }
     : null;
 
   if (raw.failedCrawls && raw.failedCrawls.length > 0) {

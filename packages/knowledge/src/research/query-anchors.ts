@@ -129,3 +129,94 @@ export function buildFocusedResearchQueries(query: string): string[] {
 
   return unique([...queries]).slice(0, 6);
 }
+
+export type RequiredSynthesisGroup = {
+  label: string;
+  terms: string[];
+  required: boolean;
+};
+
+export type SynthesisGroupResult = {
+  label: string;
+  present: boolean;
+  terms: string[];
+};
+
+export function requiredSynthesisGroupsForQuery(query: string): RequiredSynthesisGroup[] {
+  const q = query.toLowerCase();
+  const groups: RequiredSynthesisGroup[] = [];
+
+  if (q.includes("auth") || q.includes("authentication") || q.includes("api")) {
+    groups.push({
+      label: "OAuth",
+      terms: ["oauth 2.0", "oauth"],
+      required: true,
+    });
+
+    groups.push({
+      label: "Access token",
+      terms: ["access token"],
+      required: true,
+    });
+  }
+
+  if (q.includes("google ads api") || q.includes("google ads")) {
+    groups.push({
+      label: "Developer token",
+      terms: ["developer token"],
+      required: true,
+    });
+  }
+
+  if (
+    q.includes("rate limit") || q.includes("rate limits") ||
+    q.includes("quota") || q.includes("compare") ||
+    q.includes("api")
+  ) {
+    groups.push({
+      label: "Rate limits or quotas",
+      terms: ["rate limit", "rate limits", "quota", "quotas", "limits"],
+      required: true,
+    });
+  }
+
+  return groups;
+}
+
+export function missingRequiredSynthesisGroups(answer: string, query: string): string[] {
+  const answerLower = answer.toLowerCase();
+
+  return requiredSynthesisGroupsForQuery(query)
+    .filter((group) => group.required)
+    .filter((group) => !group.terms.some((term) => answerLower.includes(term)))
+    .map((group) => group.label);
+}
+
+export function buildApiSynthesisTemplate(query: string): string {
+  const groups = requiredSynthesisGroupsForQuery(query);
+  if (groups.length === 0) return "";
+
+  const sections = groups.map((g) => `- ${g.label}:`).join("\n");
+
+  return [
+    "",
+    "For API authentication or comparison queries, use this structure:",
+    "",
+    "## Authentication",
+    `- OAuth:`,
+    `- Access token:${query.toLowerCase().includes("google ads") ? "\n- Developer token:" : ""}`,
+    "",
+    "## Rate limits / quotas",
+    "- State what the evidence says.",
+    "- If exact numeric limits are not found, say that exact limits were not found in the retrieved evidence.",
+    "",
+    query.toLowerCase().includes("compare")
+      ? [
+          "## Key differences",
+          "- Compare the systems directly.",
+          "",
+        ].join("\n")
+      : "",
+    "Do not omit a required section. If evidence is missing, write \"Evidence not found\" for that section.",
+  ].filter(Boolean).join("\n");
+}

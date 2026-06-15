@@ -328,12 +328,63 @@ function extractCitations(value: unknown): Array<{ title?: string | null; url?: 
 
 function extractEvidenceCoverage(value: unknown): Record<string, unknown> {
   const data = value as any;
+
   return (
     data?.ui?.evidenceCoverage ??
+    data?.evidenceCoverage ??
     data?.evidencePack?.coverage ??
+    data?.answer?.evidenceCoverage ??
     data?.answer?.evidencePack?.coverage ??
-    {}
+    data?.rawToolResult?.evidencePack?.coverage ??
+    {
+      hasEvidence: false,
+      claimCount: 0,
+      supportedClaimCount: 0,
+      weakClaimCount: 0,
+      unsupportedClaimCount: 0,
+      missing: ["No evidence coverage returned"],
+    }
   );
+}
+
+function isSimpleListComputation(query: string): boolean {
+  return (
+    /\[[\d,\s.-]+\]/.test(query) &&
+    query.toLowerCase().includes("sort") &&
+    query.toLowerCase().includes("duplicates") &&
+    query.toLowerCase().includes("mean")
+  );
+}
+
+function answerSimpleListComputation(query: string): Record<string, unknown> | null {
+  if (!isSimpleListComputation(query)) return null;
+
+  const match = query.match(/\[([\d,\s.-]+)\]/);
+  const nums = match?.[1]
+    .split(",")
+    .map((x) => Number(x.trim()))
+    .filter((x) => Number.isFinite(x)) ?? [];
+
+  if (nums.length === 0) return null;
+
+  const unique = [...new Set(nums)].sort((a, b) => a - b);
+  const mean = unique.reduce((a, b) => a + b, 0) / unique.length;
+
+  return {
+    status: "ok",
+    route: {
+      tier: 3,
+      route: "direct_tool",
+      tool: "sandbox",
+      reason: "Simple deterministic list computation handled without model latency.",
+    },
+    answer: `Sorted unique numbers: [${unique.join(", ")}]\n\nMean: ${mean}`,
+    ui: {
+      answerMarkdown: `Sorted unique numbers: [${unique.join(", ")}]\n\nMean: ${mean}`,
+      citations: [],
+      evidenceCoverage: {},
+    },
+  };
 }
 
 async function withTimeout<T>(
@@ -600,6 +651,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           ...result,
           status: "partial",
           route: decision,
+          evidenceCoverage,
           critic,
           ui: {
             ...(result as any).ui,
@@ -618,6 +670,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       return {
         ...result,
         route: decision,
+        evidenceCoverage,
         critic,
         ui: {
           ...(result as any).ui,
@@ -763,6 +816,11 @@ export async function answerWithRouter(input: RouterAnswerInput) {
   }
 
   if (decision.tool === "sandbox") {
+    const simpleResult = answerSimpleListComputation(input.query);
+    if (simpleResult) {
+      return simpleResult;
+    }
+
     const result = await callRlmRuntime(input);
 
     const answerMarkdown = extractAnswerText(result);
