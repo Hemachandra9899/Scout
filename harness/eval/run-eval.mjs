@@ -696,6 +696,18 @@ async function main() {
 
   const finishedAt = new Date().toISOString();
 
+  const routingPassed = rows.filter((row) => {
+    const expectedTier = row.expectedTier;
+    const expectedTool = row.expectedTool;
+    if (expectedTier === null && !expectedTool) return true;
+    const actualTier = row.actualTier;
+    const actualTool = row.actualTool;
+    return (
+      (expectedTier === null || Number(expectedTier) === Number(actualTier)) &&
+      (!expectedTool || String(expectedTool) === String(actualTool))
+    );
+  }).length;
+
   const aggregate = {
     startedAt,
     finishedAt,
@@ -705,6 +717,7 @@ async function main() {
     passed: rows.filter((row) => row.passed).length,
     failed: rows.filter((row) => !row.passed).length,
     passRate: rows.length ? rows.filter((row) => row.passed).length / rows.length : 0,
+    routingAccuracy: rows.length ? routingPassed / rows.length : 0,
     meanGroundedRatio: rows.length ? rows.reduce((sum, row) => sum + row.groundedRatio, 0) / rows.length : 0,
     meanCorrectness: rows.length ? rows.reduce((sum, row) => sum + row.correctness, 0) / rows.length : 0,
     meanCompleteness: rows.length ? rows.reduce((sum, row) => sum + row.completeness, 0) / rows.length : 0,
@@ -723,12 +736,36 @@ async function main() {
   console.log(`Mean grounded ratio: ${aggregate.meanGroundedRatio.toFixed(3)}`);
   console.log(`Mean correctness: ${aggregate.meanCorrectness.toFixed(3)}`);
   console.log(`Mean completeness: ${aggregate.meanCompleteness.toFixed(3)}`);
+  console.log(`Mean reward: ${aggregate.meanReward.toFixed(1)}`);
+  console.log(`Routing accuracy: ${(aggregate.routingAccuracy * 100).toFixed(0)}%`);
   console.log(`Summary: ${path.join(OUTPUT_DIR, "summary.md")}`);
 
+  let gateFailed = false;
+
   if (FAIL_UNDER > 0 && aggregate.meanCorrectness < FAIL_UNDER) {
-    console.error(`meanCorrectness ${aggregate.meanCorrectness.toFixed(3)} < EVAL_FAIL_UNDER ${FAIL_UNDER}`);
-    process.exitCode = 1;
+    console.error(`GATE: meanCorrectness ${aggregate.meanCorrectness.toFixed(3)} < ${FAIL_UNDER}`);
+    gateFailed = true;
   }
+
+  const GATE_MIN_PASS_RATE = Number(process.env.EVAL_GATE_PASS_RATE || 0);
+  if (GATE_MIN_PASS_RATE > 0 && aggregate.passRate < GATE_MIN_PASS_RATE) {
+    console.error(`GATE: passRate ${aggregate.passRate.toFixed(3)} < ${GATE_MIN_PASS_RATE}`);
+    gateFailed = true;
+  }
+
+  const GATE_MIN_REWARD = Number(process.env.EVAL_GATE_MIN_REWARD || 0);
+  if (GATE_MIN_REWARD > 0 && aggregate.meanReward < GATE_MIN_REWARD) {
+    console.error(`GATE: meanReward ${aggregate.meanReward.toFixed(1)} < ${GATE_MIN_REWARD}`);
+    gateFailed = true;
+  }
+
+  const GATE_MIN_ROUTING = Number(process.env.EVAL_GATE_ROUTING || 0);
+  if (GATE_MIN_ROUTING > 0 && aggregate.routingAccuracy < GATE_MIN_ROUTING) {
+    console.error(`GATE: routingAccuracy ${(aggregate.routingAccuracy * 100).toFixed(0)}% < ${(GATE_MIN_ROUTING * 100).toFixed(0)}%`);
+    gateFailed = true;
+  }
+
+  if (gateFailed) process.exitCode = 1;
 }
 
 main().catch((error) => {
