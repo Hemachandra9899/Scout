@@ -297,5 +297,5 @@ This file tracks the next implementation steps for Scout Research Engine v2.
 - [ ] Start Docker stack.
 - [ ] Run `BENCHMARK_MAX_QUERIES=3 npm run benchmark:research`.
 - [ ] Run full `npm run benchmark:research`.
-- [ ] Inspect failed cases in `benchmark-runs/<timestamp>/summary.md`.
+- [ ] Inspect failed cases in `harness-runs/<timestamp>/summary.md`.
 - [ ] Use benchmark failures to tune crawler/evidence thresholds.

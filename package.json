@@ -26,10 +26,14 @@
     "test:knowledge": "npm --workspace packages/knowledge test",
     "test:providers": "npm --workspace packages/knowledge run test:providers",
     "typecheck:web": "npm --workspace apps/web run typecheck",
-    "benchmark:research": "node benchmarks/run-research-benchmark.mjs",
-    "eval": "node benchmarks/eval/run-eval.mjs",
-    "eval:ci": "EVAL_FAIL_UNDER=0.7 node benchmarks/eval/run-eval.mjs",
-    "eval:analyze": "node benchmarks/eval/analyze-run.mjs"
+    "benchmark:research": "npm run harness:research",
+    "eval": "npm run harness:eval",
+    "eval:ci": "npm run harness:ci",
+    "eval:analyze": "npm run harness:analyze",
+    "harness:research": "node harness/run-research-benchmark.mjs",
+    "harness:eval": "node harness/eval/run-eval.mjs",
+    "harness:ci": "EVAL_FAIL_UNDER=0.7 node harness/eval/run-eval.mjs",
+    "harness:analyze": "node harness/eval/analyze-run.mjs"
   },
   "devDependencies": {
     "prisma": "^6.1.0"

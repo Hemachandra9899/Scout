@@ -7,7 +7,7 @@ const API_BASE_URL = (process.env.API_BASE_URL || "http://localhost:8000").repla
 const PROJECT_ID = process.env.BENCHMARK_PROJECT_ID || "benchmark-project";
 const OUTPUT_DIR =
   process.env.BENCHMARK_OUTPUT_DIR ||
-  path.join("benchmark-runs", new Date().toISOString().replace(/[:.]/g, "-"));
+  path.join("harness-runs", new Date().toISOString().replace(/[:.]/g, "-"));
 const MAX_QUERIES = Number(process.env.BENCHMARK_MAX_QUERIES || 0);
 const REQUEST_TIMEOUT_MS = Number(process.env.BENCHMARK_TIMEOUT_MS || 180_000);
 

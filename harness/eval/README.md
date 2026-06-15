@@ -48,7 +48,7 @@ EVAL_MAX_CASES=3 npm run eval
 
 Each run writes:
 
-* `benchmark-runs/<timestamp>/eval.json`
-* `benchmark-runs/<timestamp>/summary.md`
-* `benchmark-runs/<timestamp>/summary.csv`
+* `harness-runs/<timestamp>/eval.json`
+* `harness-runs/<timestamp>/summary.md`
+* `harness-runs/<timestamp>/summary.csv`
 * one raw response JSON per case

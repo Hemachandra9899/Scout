@@ -166,7 +166,7 @@ const API_BASE_URL = (process.env.API_BASE_URL || "http://localhost:8000").repla
 const PROJECT_ID = process.env.BENCHMARK_PROJECT_ID || "benchmark-project";
 const OUTPUT_DIR =
   process.env.BENCHMARK_OUTPUT_DIR ||
-  path.join("benchmark-runs", new Date().toISOString().replace(/[:.]/g, "-"));
+  path.join("harness-runs", new Date().toISOString().replace(/[:.]/g, "-"));
 const MAX_QUERIES = Number(process.env.BENCHMARK_MAX_QUERIES || 0);
 const REQUEST_TIMEOUT_MS = Number(process.env.BENCHMARK_TIMEOUT_MS || 180_000);
 
@@ -491,7 +491,7 @@ BENCHMARK_ALLOW_FAILURES=1 npm run benchmark:research
 Each run writes to:
 
 ```text
-benchmark-runs/<timestamp>/
+harness-runs/<timestamp>/
 ```
 
 Files:
@@ -545,7 +545,7 @@ BENCHMARK_MAX_QUERIES=3 npm run benchmark:research
 Outputs are written to:
 
 ```text
-benchmark-runs/<timestamp>/
+harness-runs/<timestamp>/
 ```
 
 The runner validates:
@@ -576,7 +576,7 @@ TODO_APPEND = r'''
 - [ ] Start Docker stack.
 - [ ] Run `BENCHMARK_MAX_QUERIES=3 npm run benchmark:research`.
 - [ ] Run full `npm run benchmark:research`.
-- [ ] Inspect failed cases in `benchmark-runs/<timestamp>/summary.md`.
+- [ ] Inspect failed cases in `harness-runs/<timestamp>/summary.md`.
 - [ ] Use benchmark failures to tune crawler/evidence thresholds.
 '''
 
@@ -601,12 +601,12 @@ def update_gitignore() -> None:
     path = ROOT / ".gitignore"
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     additions = []
-    if "benchmark-runs/" not in text:
-        additions.append("benchmark-runs/")
-    if "!benchmark-runs/.gitkeep" not in text:
-        additions.append("!benchmark-runs/.gitkeep")
+    if "harness-runs/" not in text:
+        additions.append("harness-runs/")
+    if "!harness-runs/.gitkeep" not in text:
+        additions.append("!harness-runs/.gitkeep")
     if additions:
-        text = text.rstrip() + "\n\n# Scout benchmark outputs\n" + "\n".join(additions) + "\n"
+        text = text.rstrip() + "\n\n# Scout harness outputs\n" + "\n".join(additions) + "\n"
         path.write_text(text, encoding="utf-8")
         print("updated .gitignore")
 
@@ -628,10 +628,10 @@ def append_once(path: str, heading: str, content: str) -> None:
 
 def main() -> None:
     assert_repo_root()
-    write("benchmarks/research-queries.json", QUERIES_JSON)
-    write("benchmarks/run-research-benchmark.mjs", RUNNER_MJS)
-    write("benchmarks/README.md", README_MD)
-    write("benchmark-runs/.gitkeep", "")
+    write("harness/research-queries.json", QUERIES_JSON)
+    write("harness/run-research-benchmark.mjs", RUNNER_MJS)
+    write("harness/README.md", README_MD)
+    write("harness-runs/.gitkeep", "")
     update_root_package()
     update_gitignore()
     append_once("README.md", "Benchmark query suite", ROOT_README_APPEND)

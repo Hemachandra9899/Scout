@@ -44,7 +44,7 @@ BENCHMARK_ALLOW_FAILURES=1 npm run benchmark:research
 Each run writes to:
 
 ```text
-benchmark-runs/<timestamp>/
+harness-runs/<timestamp>/
 ```
 
 Files:

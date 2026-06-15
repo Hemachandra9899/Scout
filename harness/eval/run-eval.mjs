@@ -11,8 +11,8 @@ const API_BASE_URL = (process.env.API_BASE_URL || "http://localhost:8000").repla
 const RLM_RUNTIME_URL = (process.env.RLM_RUNTIME_URL || "http://localhost:8787").replace(/\/$/, "");
 const OUTPUT_DIR =
   process.env.EVAL_OUTPUT_DIR ||
-  path.join("benchmark-runs", new Date().toISOString().replace(/[:.]/g, "-"));
-const CASES_DIR = process.env.EVAL_CASES_DIR || "benchmarks/eval/cases";
+  path.join("harness-runs", new Date().toISOString().replace(/[:.]/g, "-"));
+const CASES_DIR = process.env.EVAL_CASES_DIR || "harness/eval/cases";
 const MAX_CASES = Number(process.env.EVAL_MAX_CASES || 0);
 const REQUEST_TIMEOUT_MS = Number(process.env.EVAL_TIMEOUT_MS || 180_000);
 const FAIL_UNDER = Number(process.env.EVAL_FAIL_UNDER || 0);

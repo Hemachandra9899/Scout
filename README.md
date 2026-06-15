@@ -543,7 +543,7 @@ BENCHMARK_MAX_QUERIES=3 npm run benchmark:research
 Outputs are written to:
 
 ```text
-benchmark-runs/<timestamp>/
+harness-runs/<timestamp>/
 ```
 
 The runner validates:

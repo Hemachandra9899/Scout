@@ -4,7 +4,7 @@ import path from "node:path";
 const runDir = process.argv[2];
 
 if (!runDir) {
-  console.error("Usage: node benchmarks/eval/analyze-run.mjs <benchmark-runs/run-dir>");
+  console.error("Usage: node harness/eval/analyze-run.mjs <harness-runs/run-dir>");
   process.exit(1);
 }
 
