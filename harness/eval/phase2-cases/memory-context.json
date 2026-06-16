@@ -1,0 +1,93 @@
+[
+  {
+    "id": "phase2-memory-preference-001",
+    "intent": "memory_recall",
+    "description": "User preference should be recalled only when relevant.",
+    "setupMessages": [
+      {
+        "role": "user",
+        "content": "For Scout research answers, I prefer short answers with bullet points and clear citations."
+      }
+    ],
+    "query": "Summarize the Scout architecture from the project knowledge base.",
+    "expectedTier": 1,
+    "expectedTool": "search_kb",
+    "mustMention": ["API", "worker", "RLM runtime"],
+    "mustNotClaim": ["I cannot access your preferences"],
+    "expectedPhase2": {
+      "recallUsed": true,
+      "memoryKind": "preference"
+    },
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 90000
+  },
+  {
+    "id": "phase2-research-reuse-001",
+    "intent": "research_reuse",
+    "description": "Follow-up should reuse prior research sources where possible.",
+    "setupMessages": [
+      {
+        "role": "user",
+        "content": "Research how Google Ads API authentication works and save the useful official sources."
+      }
+    ],
+    "query": "Using the sources from earlier, explain the Google Ads API developer token requirement.",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": ["developer token", "Google Ads API"],
+    "expectedPhase2": {
+      "sourceReuseUsed": true
+    },
+    "minGroundedRatio": 0.6,
+    "maxLatencyMs": 90000
+  },
+  {
+    "id": "phase2-blocked-source-001",
+    "intent": "blocked_source_memory",
+    "description": "A blocked/untrusted source should be avoided in later research.",
+    "setupMessages": [
+      {
+        "role": "user",
+        "content": "For future research, avoid random-seo-example.com because it gave unreliable AI-generated summaries."
+      }
+    ],
+    "query": "Find current news about WhatsApp and summarize it with sources.",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": ["WhatsApp"],
+    "mustNotClaim": ["random-seo-example.com"],
+    "expectedPhase2": {
+      "blockedSourceAvoided": true
+    },
+    "minGroundedRatio": 0.6,
+    "maxLatencyMs": 90000
+  },
+  {
+    "id": "phase2-empty-evidence-recovery-001",
+    "intent": "evidence_recovery",
+    "description": "When initial evidence is weak, Scout should retry with a refined query or return a safe partial.",
+    "query": "Compare Meta Marketing API and Google Ads API rate limit policies using official documentation.",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": ["Meta Marketing API", "Google Ads API", "rate"],
+    "expectedPhase2": {
+      "recoveryAttempted": true
+    },
+    "minGroundedRatio": 0.6,
+    "maxLatencyMs": 120000
+  },
+  {
+    "id": "phase2-project-graph-context-001",
+    "intent": "project_context_graph",
+    "description": "Project architecture question that needs multi-hop component relationships.",
+    "query": "In Scout, which component calls the RLM runtime, and how does that connect to tools and the final answer?",
+    "expectedTier": 1,
+    "expectedTool": "search_kb",
+    "mustMention": ["worker", "RLM runtime", "tools", "answer"],
+    "expectedPhase2": {
+      "graphContextUsed": true
+    },
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 90000
+  }
+]

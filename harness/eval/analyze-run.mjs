@@ -132,6 +132,10 @@ async function main() {
       }
     }
 
+    if (trajectory?.phase2) {
+      lines.push(`  - phase2: ${JSON.stringify(trajectory.phase2)}`);
+    }
+
     const trace = safeArray(toolEvent?.researchTrace);
     if (trace.length > 0) {
       lines.push("  - researchTrace:");
@@ -154,6 +158,29 @@ async function main() {
         `| ${row.id} | ${row.reward ?? ""} | ${row.passed ? "✅" : "❌"} | ${row.actualTool ?? "?"} | ${formatMs(row.durationMs)} | ${row.failures || ""} |`,
       );
     }
+  }
+
+  const phase2Counts = {
+    recallUsed: 0,
+    sourceReuseUsed: 0,
+    blockedSourceAvoided: 0,
+    recoveryAttempted: 0,
+    graphContextUsed: 0,
+  };
+
+  for (const trajectory of trajectories) {
+    for (const key of Object.keys(phase2Counts)) {
+      if (trajectory?.phase2?.[key]) phase2Counts[key] += 1;
+    }
+  }
+
+  if (Object.values(phase2Counts).some((v) => v > 0)) {
+    lines.push("## Phase 2 signals");
+    lines.push("");
+    for (const [key, count] of Object.entries(phase2Counts)) {
+      lines.push(`- ${key}: ${count}`);
+    }
+    lines.push("");
   }
 
   const outputPath = path.join(runDir, "analysis.md");

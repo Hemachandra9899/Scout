@@ -1,3 +1,45 @@
+function extractPhase2Signals(response) {
+  const debug = response?.debug ?? {};
+  const ui = response?.ui ?? {};
+  const raw = response?.rawToolResult ?? {};
+
+  return {
+    recallUsed:
+      debug.recallUsed ??
+      debug.memory?.recallUsed ??
+      ui.memory?.recallUsed ??
+      raw.debug?.memory?.recallUsed ??
+      false,
+
+    sourceReuseUsed:
+      debug.sourceReuseUsed ??
+      debug.memory?.sourceReuseUsed ??
+      ui.memory?.sourceReuseUsed ??
+      raw.debug?.memory?.sourceReuseUsed ??
+      false,
+
+    blockedSourceAvoided:
+      debug.blockedSourceAvoided ??
+      debug.memory?.blockedSourceAvoided ??
+      ui.memory?.blockedSourceAvoided ??
+      raw.debug?.memory?.blockedSourceAvoided ??
+      false,
+
+    recoveryAttempted:
+      debug.recoveryAttempted ??
+      debug.researchTrace?.some?.((stage) =>
+        String(stage.name ?? "").toLowerCase().includes("retry"),
+      ) ??
+      false,
+
+    graphContextUsed:
+      debug.graphContextUsed ??
+      debug.graph?.used ??
+      ui.graph?.used ??
+      false,
+  };
+}
+
 function extractResearchTrace(response) {
   return (
     response?.researchTrace ??
@@ -58,6 +100,7 @@ export function buildTrajectory({ caseItem, response, row }) {
         answerPreview: row.answerPreview,
       },
     ],
+    phase2: extractPhase2Signals(response),
     metrics: {
       passed: row.passed,
       routingPassed: row.routingPassed,
