@@ -33,7 +33,7 @@
     "harness:research": "node harness/run-research-benchmark.mjs",
     "harness:eval": "node harness/eval/run-eval.mjs",
     "harness:ci":
-      "EVAL_FAIL_UNDER=0.7 EVAL_GATE_PASS_RATE=0.9 EVAL_GATE_MIN_REWARD=5.0 EVAL_GATE_ROUTING=1.0 node harness/eval/run-eval.mjs",
+      "EVAL_TARGET=router EVAL_PROJECT_ID=a26d90b1-dc27-43de-a1dd-5c961d54ca0e EVAL_FAIL_UNDER=0.7 EVAL_GATE_PASS_RATE=0.9 EVAL_GATE_MIN_REWARD=5.0 EVAL_GATE_ROUTING=1.0 node harness/eval/run-eval.mjs",
     "harness:analyze": "node harness/eval/analyze-run.mjs"
   },
   "devDependencies": {

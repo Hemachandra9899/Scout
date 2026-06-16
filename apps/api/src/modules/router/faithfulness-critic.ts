@@ -160,7 +160,12 @@ export function evaluateFaithfulness(
       Number(coverage?.claimCount ?? 0) ||
       supported + weak + unsupported;
 
-    const supportedRatio = total > 0 ? supported / total : 0;
+    const effectiveSupported =
+      unsupported === 0
+        ? supported + weak
+        : supported;
+
+    const supportedRatio = total > 0 ? effectiveSupported / total : 0;
 
     const unsupportedClaims = citationVerification
       .filter((item) => item.status === "unsupported")
