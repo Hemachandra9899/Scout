@@ -245,6 +245,20 @@ function isRepoMemoryQuestion(query: string): boolean {
   );
 }
 
+function isUpdateRepoGraphQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    hasGithubRepoUrl(query) &&
+    (
+      q.includes("update repo graph") ||
+      q.includes("regraphify") ||
+      q.includes("refresh repo graph") ||
+      q.includes("update the codebase graph") ||
+      q.includes("refresh the codebase graph")
+    )
+  );
+}
+
 function isGraphifyRepoQuery(query: string): boolean {
   const q = query.toLowerCase();
   return (
@@ -367,6 +381,15 @@ export function routeScoutQuery(query: string): RouterDecision {
       route: "direct_tool",
       tool: "github_repo",
       reason: "Memo repo request detected; analyze GitHub repo and persist repo memories.",
+    };
+  }
+
+  if (isUpdateRepoGraphQuery(query)) {
+    return {
+      tier: 2,
+      route: "direct_tool",
+      tool: "github_repo",
+      reason: "Repo graph update request detected; analyze GitHub repo and incrementally update graph.",
     };
   }
 
@@ -864,8 +887,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
     let memoRepoWritten = 0;
     let memoRepoUsed = false;
     let graphifyRepoUsed = false;
-    let graphifyNodeCount = 0;
-    let graphifyEdgeCount = 0;
+    let repoGraphWritten: Record<string, any> | null = null;
 
     if (isMemoRepoQuery(input.query)) {
       const repoDrafts = memoryManager.buildRepoMemories({
@@ -883,17 +905,26 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       memoRepoUsed = memoRepoWritten > 0;
     }
 
-    if (isGraphifyRepoQuery(input.query)) {
+    const shouldGraphify =
+      isGraphifyRepoQuery(input.query) || isUpdateRepoGraphQuery(input.query);
+
+    if (shouldGraphify) {
       const repoFiles = ((result as any).files ?? []) as Array<{ path: string; text: string }>;
       if (repoFiles.length > 0) {
+        const graphMode = isUpdateRepoGraphQuery(input.query) ? "incremental" : "full";
+
         const graphResult = await buildAndPersistRepoGraph({
           projectId: input.projectId,
           repoName: (result as any).repo ?? "",
+          repoUrl: url,
+          stack: (result as any).stack ?? [],
+          selectedFiles: (result as any).selectedFiles ?? [],
           files: repoFiles,
+          mode: graphMode,
         });
+
         graphifyRepoUsed = true;
-        graphifyNodeCount = graphResult.nodeCount;
-        graphifyEdgeCount = graphResult.edgeCount;
+        repoGraphWritten = graphResult as any;
       }
     }
 
@@ -910,9 +941,12 @@ export async function answerWithRouter(input: RouterAnswerInput) {
     const graphifySuffix = graphifyRepoUsed
       ? [
           "",
-          `## Code graph built`,
+          `## Graph saved`,
           "",
-          `Built ${graphifyNodeCount} entities and ${graphifyEdgeCount} relations from the repo code graph.`,
+          `Mode: ${repoGraphWritten?.graphUpdateMode}.`,
+          `Saved repo graph with ${repoGraphWritten?.entityCount ?? 0} entities and ${repoGraphWritten?.relationCount ?? 0} relations.`,
+          `Changed files: ${repoGraphWritten?.changedFileCount ?? 0}.`,
+          `Skipped unchanged files: ${repoGraphWritten?.skippedFileCount ?? 0}.`,
           "Use `query_graph` to ask questions about the code graph.",
         ].join("\n")
       : "";
@@ -945,8 +979,10 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         memoRepoWritten,
         graphifyRepoUsed,
         repoGraphUsed: graphifyRepoUsed,
-        graphifyNodeCount,
-        graphifyEdgeCount,
+        repoGraphWritten,
+        graphUpdateMode: repoGraphWritten?.graphUpdateMode,
+        changedFileCount: repoGraphWritten?.changedFileCount ?? 0,
+        skippedFileCount: repoGraphWritten?.skippedFileCount ?? 0,
       },
     };
   }

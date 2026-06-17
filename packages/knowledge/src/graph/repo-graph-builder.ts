@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { prisma } from "@rlm-forge/database/prisma.js";
 
 export type RepoFile = {
@@ -5,20 +6,138 @@ export type RepoFile = {
   text: string;
 };
 
+export type RepoGraphBuildMode = "full" | "incremental";
+
 export type BuildRepoGraphInput = {
   projectId: string;
   repoName: string;
+  repoUrl?: string;
+  stack?: string[];
+  selectedFiles?: string[];
   files: RepoFile[];
+  mode?: RepoGraphBuildMode;
 };
 
 export type BuildRepoGraphOutput = {
-  nodeCount: number;
-  edgeCount: number;
-  symbolsFound: number;
-  importsFound: number;
-  depsFound: number;
-  errors: string[];
+  entityCount: number;
+  relationCount: number;
+  graphUpdateMode: RepoGraphBuildMode;
+  changedFileCount: number;
+  skippedFileCount: number;
+  deletedEntityCount: number;
+  deletedRelationCount: number;
 };
+
+function hashText(text: string): string {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function getMetadataValue(metadata: unknown, key: string): unknown {
+  if (!metadata || typeof metadata !== "object") return undefined;
+  return (metadata as Record<string, unknown>)[key];
+}
+
+async function getExistingFileHash(input: {
+  projectId: string;
+  repoName: string;
+  filePath: string;
+}): Promise<string | null> {
+  const existing = await prisma.entity.findFirst({
+    where: {
+      projectId: input.projectId,
+      type: "file",
+      name: input.filePath,
+    },
+  });
+
+  const metadata = existing?.metadata ?? {};
+  const repoName = getMetadataValue(metadata, "repoName");
+  const contentHash = getMetadataValue(metadata, "contentHash");
+
+  if (repoName !== input.repoName) return null;
+  return typeof contentHash === "string" ? contentHash : null;
+}
+
+async function detectChangedFiles(input: {
+  projectId: string;
+  repoName: string;
+  files: RepoFile[];
+  mode: RepoGraphBuildMode;
+}): Promise<{
+  changedFiles: RepoFile[];
+  skippedFiles: RepoFile[];
+}> {
+  if (input.mode === "full") {
+    return { changedFiles: input.files, skippedFiles: [] };
+  }
+
+  const changedFiles: RepoFile[] = [];
+  const skippedFiles: RepoFile[] = [];
+
+  for (const file of input.files) {
+    const currentHash = hashText(file.text);
+    const existingHash = await getExistingFileHash({
+      projectId: input.projectId,
+      repoName: input.repoName,
+      filePath: file.path,
+    });
+
+    if (existingHash && existingHash === currentHash) {
+      skippedFiles.push(file);
+    } else {
+      changedFiles.push(file);
+    }
+  }
+
+  return { changedFiles, skippedFiles };
+}
+
+async function deleteFileSubgraphs(input: {
+  projectId: string;
+  filePaths: string[];
+}): Promise<{
+  deletedEntityCount: number;
+  deletedRelationCount: number;
+}> {
+  if (input.filePaths.length === 0) {
+    return { deletedEntityCount: 0, deletedRelationCount: 0 };
+  }
+
+  const fileEntities = await prisma.entity.findMany({
+    where: {
+      projectId: input.projectId,
+      type: "file",
+      name: { in: input.filePaths },
+    },
+  });
+
+  const entityIds = fileEntities.map((e) => e.id);
+
+  if (entityIds.length === 0) {
+    return { deletedEntityCount: 0, deletedRelationCount: 0 };
+  }
+
+  await prisma.relation.deleteMany({
+    where: {
+      projectId: input.projectId,
+      OR: [
+        { sourceEntityId: { in: entityIds } },
+        { targetEntityId: { in: entityIds } },
+      ],
+    },
+  });
+
+  await prisma.entity.deleteMany({
+    where: {
+      projectId: input.projectId,
+      id: { in: entityIds },
+    },
+  });
+
+  const deletedEntityCount = entityIds.length;
+
+  return { deletedEntityCount, deletedRelationCount: 0 };
+}
 
 const SYMBOL_PATTERNS: Array<{ lang: string; pattern: RegExp; type: string }> = [
   { lang: "ts", pattern: /export\s+(class|function|const|interface|type|enum)\s+(\w+)/g, type: "symbol" },
@@ -78,10 +197,24 @@ function isExternalDep(importPath: string): boolean {
 }
 
 export async function buildAndPersistRepoGraph(input: BuildRepoGraphInput): Promise<BuildRepoGraphOutput> {
-  const { projectId, files } = input;
-  const errors: string[] = [];
+  const { projectId, repoName, files } = input;
+  const mode = input.mode ?? "full";
 
-  const existingEntities = await prisma.entity.findMany({ where: { projectId }, select: { id: true, name: true, type: true } });
+  const { changedFiles, skippedFiles } = await detectChangedFiles({
+    projectId,
+    repoName,
+    files,
+    mode,
+  });
+
+  const changedFilePaths = changedFiles.map((f) => f.path);
+
+  const { deletedEntityCount, deletedRelationCount } = await deleteFileSubgraphs({
+    projectId,
+    filePaths: changedFilePaths,
+  });
+
+  const existingEntities = await prisma.entity.findMany({ where: { projectId }, select: { id: true, name: true, type: true, metadata: true } });
   const existingEntityMap = new Map<string, string>();
   for (const e of existingEntities) {
     existingEntityMap.set(`${e.name}:${e.type}`, e.id);
@@ -98,7 +231,6 @@ export async function buildAndPersistRepoGraph(input: BuildRepoGraphInput): Prom
 
   const entitiesToCreate: any[] = [];
   const relationsToCreate: any[] = [];
-
   const createdEntityKeys = new Map<string, string>();
 
   function getOrCreateEntityKey(name: string, type: string, description: string, confidence: number, metadata: any): string {
@@ -113,12 +245,19 @@ export async function buildAndPersistRepoGraph(input: BuildRepoGraphInput): Prom
     return placeholder;
   }
 
-  for (const file of files) {
+  for (const file of changedFiles) {
     const lang = detectLang(file.path);
     if (lang === "unknown") continue;
 
     const fileName = file.path.split("/").pop() ?? file.path;
-    const fileEntityKey = getOrCreateEntityKey(fileName, "file", `File: ${file.path}`, 1.0, { path: file.path });
+    const contentHash = hashText(file.text);
+    const fileEntityKey = getOrCreateEntityKey(
+      fileName,
+      "file",
+      `File: ${file.path}`,
+      1.0,
+      { path: file.path, contentHash, repoName },
+    );
 
     const symbols = extractSymbols(file.text, lang);
     for (const sym of symbols) {
@@ -161,7 +300,7 @@ export async function buildAndPersistRepoGraph(input: BuildRepoGraphInput): Prom
           }
         }
       } catch {
-        errors.push(`Failed to parse package.json at ${file.path}`);
+        // failed to parse package.json
       }
     }
   }
@@ -205,11 +344,12 @@ export async function buildAndPersistRepoGraph(input: BuildRepoGraphInput): Prom
   const relationCount = await prisma.relation.count({ where: { projectId } });
 
   return {
-    nodeCount: entityCount,
-    edgeCount: relationCount,
-    symbolsFound: entitiesToCreate.filter((e: any) => e.type !== "file" && e.type !== "module" && e.type !== "dependency").length,
-    importsFound: resolvedRelations.filter((r: any) => r.relationType === "imports").length,
-    depsFound: resolvedRelations.filter((r: any) => r.relationType === "depends_on").length,
-    errors,
+    entityCount,
+    relationCount,
+    graphUpdateMode: mode,
+    changedFileCount: changedFiles.length,
+    skippedFileCount: skippedFiles.length,
+    deletedEntityCount,
+    deletedRelationCount,
   };
 }

@@ -1,0 +1,15 @@
+{
+  "id": "phase3-update-repo-graph-001",
+  "intent": "update_repo_graph",
+  "description": "Scout should update an existing repo graph without rebuilding unchanged files.",
+  "query": "Update repo graph for https://github.com/Hemachandra9899/Scout",
+  "expectedTier": 2,
+  "expectedTool": "github_repo",
+  "mustMention": ["Graph saved", "Mode: incremental", "Skipped unchanged files"],
+  "mustNotClaim": [],
+  "expectedPhase2": {
+    "graphifyRepoUsed": true
+  },
+  "minGroundedRatio": 0,
+  "maxLatencyMs": 180000
+}
