@@ -15,6 +15,7 @@ import {
   buildApiSynthesisTemplate,
 } from "./query-anchors.js";
 import { filterAndRankSourcesForQuery } from "./source-relevance.js";
+import { buildEvidenceRecoveryPlan } from "./recovery-planner.js";
 import { buildNewsQueryPlan, isNewsLikeQuery } from "./news-query-planner.js";
 import { rankResourceCandidates, isFreshnessRequired } from "./source-ranker.js";
 import { officialSourceSeedsForQuery } from "./official-source-catalog.js";
@@ -128,6 +129,10 @@ export type ResearchOrchestratorOutput = {
   evidencePack: EvidencePack;
   answer: SynthesizedAnswer;
   researchTrace: ResearchStageTrace[];
+  debug?: {
+    recoveryAttempted: boolean;
+    recoveryPlan: unknown;
+  };
 };
 
 function normalizeUrl(url: string): string {
@@ -428,6 +433,7 @@ export class ResearchOrchestrator {
             data: { report: sourceRelevance.report },
           },
         ],
+        debug: { recoveryAttempted: false, recoveryPlan: null },
       };
     }
 
@@ -491,13 +497,16 @@ export class ResearchOrchestrator {
       }, researchConfig.stageTimeoutMs);
     }
 
-    const rerankedEvidence = rerankEvidenceForQuery(
+    let recoveryAttempted = false;
+    let recoveryPlanDebug: unknown = null;
+
+    let rerankedEvidence = rerankEvidenceForQuery(
       crawl.evidence,
       input.query,
       researchConfig.rerankTopK,
     );
 
-    const evidencePack = await trace.timed("build_evidence_pack", () =>
+    let evidencePack = await trace.timed("build_evidence_pack", () =>
       Promise.resolve(buildEvidencePack({
         query: input.query,
         resourcesPlanned: mergedResources,
@@ -563,15 +572,168 @@ export class ResearchOrchestrator {
         }
       }
 
-      const finalMissing = missingRequiredSynthesisGroups(answer.markdown, input.query);
+      let finalMissing = answer.status === "partial"
+        ? missingRequiredSynthesisGroups(answer.markdown, input.query)
+        : [];
+
       if (finalMissing.length > 0) {
         answer.status = "partial";
         answer.markdown = [
           "I found some evidence, but the answer is incomplete.",
           "",
-          `Missing required sections: ${finalMissing.join(", ")}`,
-          "",
           answer.markdown,
+        ].join("\n");
+      }
+    }
+
+    // store pre-prefix answer for recovery checking
+    const answerBody = answer.markdown;
+
+    // Use initial missing groups (before retry papered over gaps) for recovery trigger.
+    // The retry may add "Evidence not found" placeholders that satisfy the
+    // missingRequiredSynthesisGroups check, but recovery should still fire to
+    // try to find actual evidence for those gaps.
+    const finalMissing = missingGroups.length > 0 ? missingGroups : [];
+
+    if (finalMissing.length > 0) {
+      recoveryAttempted = true;
+
+      const recoveryQueries = [
+        ...buildFocusedResearchQueries(input.query),
+        ...finalMissing.flatMap((g) => [
+          `${input.query} ${g}`,
+          `${g} ${input.query}`,
+        ]),
+      ].filter((q, i, a) => a.indexOf(q) === i).slice(0, 6);
+
+      const recoveryResources: RankedResource[] = [];
+
+      for (const recoveryQuery of recoveryQueries) {
+        const recoveryBatch = await trace.timed(
+          `recovery_retry:plan_resources:${recoveryQuery.slice(0, 40)}`,
+          () =>
+            planResources({
+              query: recoveryQuery,
+              maxSources: researchConfig.fastMode ? 3 : 5,
+              memoryHints: rankingMemories,
+            }),
+          researchConfig.stageTimeoutMs,
+        );
+
+        for (const resource of recoveryBatch.resources) {
+          if (!resource.matchedBy) resource.matchedBy = [];
+          resource.matchedBy.push(`recovery:${recoveryQuery}`);
+          resource.score += 250;
+        }
+
+        recoveryResources.push(...recoveryBatch.resources);
+      }
+
+      const recoveryRelevance = filterAndRankSourcesForQuery(
+        recoveryResources,
+        input.query,
+        { topK: researchConfig.fastMode ? 3 : 5, minScore: 2 },
+      );
+
+      if (recoveryRelevance.sources.length > 0) {
+        const recoveryCrawl = await trace.timed(
+          "recovery_retry:crawl",
+          () =>
+            crawlResearchSources({
+              projectId: input.projectId,
+              query: plan.normalizedQuery,
+              resources: recoveryRelevance.sources,
+              memoryHints: rankingMemories,
+              maxPagesPerSource: 1,
+              maxTotalPages: researchConfig.fastMode ? 3 : 6,
+              maxDepth: 1,
+            }),
+          researchConfig.stageTimeoutMs,
+        );
+
+        const combinedEvidence = [
+          ...rerankedEvidence,
+          ...recoveryCrawl.evidence,
+        ];
+
+        rerankedEvidence = rerankEvidenceForQuery(
+          combinedEvidence,
+          input.query,
+          researchConfig.rerankTopK,
+        );
+
+        evidencePack = await trace.timed(
+          "recovery_retry:build_evidence_pack",
+          () =>
+            Promise.resolve(
+              buildEvidencePack({
+                query: input.query,
+                resourcesPlanned: [...mergedResources, ...recoveryRelevance.sources],
+                evidence: rerankedEvidence,
+              }),
+            ),
+          researchConfig.stageTimeoutMs,
+        );
+
+        const recoveryAnswer = await trace.timed("recovery_retry:synthesize", () =>
+          Promise.resolve(synthesizeAnswerFromEvidencePack({
+            query: `${input.query}\n\n${anchorContext}`.trim(),
+            evidencePack: {
+              ...evidencePack,
+              evidence: rerankedEvidence,
+            },
+            maxClaims: 10,
+          })),
+        researchConfig.stageTimeoutMs);
+
+        const recoveryMissing = missingRequiredSynthesisGroups(recoveryAnswer.markdown, input.query);
+        if (recoveryMissing.length < finalMissing.length) {
+          answer.markdown = recoveryAnswer.markdown;
+          answer.citations = recoveryAnswer.citations;
+          answer.usedEvidenceCount = recoveryAnswer.usedEvidenceCount;
+          answer.supportedEvidenceCount = recoveryAnswer.supportedEvidenceCount;
+          answer.weakEvidenceCount = recoveryAnswer.weakEvidenceCount;
+          answer.groundingAudit = recoveryAnswer.groundingAudit;
+          answer.confidence = recoveryAnswer.confidence;
+        }
+        if (recoveryMissing.length > 0) {
+          answer.status = "partial";
+          answer.markdown = [
+            "I found some evidence, but the answer is incomplete.",
+            "",
+            `Missing required sections: ${recoveryMissing.join(", ")}`,
+            "",
+            recoveryAnswer.markdown,
+          ].join("\n");
+        } else {
+          answer.status = "answered";
+        }
+      }
+    }
+
+    // Post-recovery: if answer still misses query anchors, append evidence gaps
+    {
+      const finalAnswerMissing = missingRequiredSynthesisGroups(answer.markdown, input.query);
+      const answerLower = answer.markdown.toLowerCase();
+      const missingAnchors = queryAnchors.filter((a) => !answerLower.includes(a.toLowerCase()));
+      if (missingAnchors.length > 0 || finalAnswerMissing.length > 0) {
+        const gapSet = new Set<string>();
+        for (const g of finalAnswerMissing) gapSet.add(g);
+        for (const a of missingAnchors) gapSet.add(a);
+        const gapItems = [...gapSet].sort();
+        if (answer.status === "answered") {
+          answer.status = "partial";
+        }
+        answer.markdown = [
+          answer.markdown,
+          "",
+          "## Evidence gaps",
+          "",
+          "The following required sections or query terms are not yet fully covered:",
+          "",
+          ...gapItems.map((g) => `- ${g}`),
+          "",
+          "(The system performed an additional evidence recovery pass but could not find sufficient evidence for these items.)",
         ].join("\n");
       }
     }
@@ -620,6 +782,10 @@ export class ResearchOrchestrator {
         evidencePack,
         answer,
         researchTrace: trace.stages,
+        debug: {
+          recoveryAttempted,
+          recoveryPlan: recoveryPlanDebug,
+        },
       };
     }
 
@@ -710,6 +876,10 @@ export class ResearchOrchestrator {
       evidencePack,
       answer,
       researchTrace: trace.stages,
+      debug: {
+        recoveryAttempted,
+        recoveryPlan: recoveryPlanDebug,
+      },
     };
   }
 }

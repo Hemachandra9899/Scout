@@ -525,12 +525,13 @@ Search providers are optional. Scout uses whatever is configured and deduplicate
 - [x] Blocked source memory
 - [x] Source reuse from prior research
 - [x] Expose `sourceReuseUsed=true`
+- [x] Bounded evidence recovery
+- [x] Expose `recoveryAttempted=true`
+- [x] Add targeted recovery eval pass
 
-### Next: Phase 2.3
+### Next: Phase 2.4
 
-- [ ] Bounded evidence recovery
-- [ ] Expose `recoveryAttempted=true`
-- [ ] Add targeted recovery eval pass
+- [ ] Lightweight project/entity graph
 
 ### Later
 

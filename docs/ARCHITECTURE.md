@@ -310,8 +310,8 @@ graphContextUsed
 | 2.0   | Memory/context eval cases                   | Complete |
 | 2.1   | Scoped memory recall                        | Complete |
 | 2.2   | Source reuse from prior successful research | Complete |
-| 2.3   | Bounded evidence recovery                   | Next     |
-| 2.4   | Lightweight project/entity graph            | Later    |
+| 2.3   | Bounded evidence recovery                   | Complete |
+| 2.4   | Lightweight project/entity graph            | Next     |
 | 2.5   | MCP/connectors with safety gates            | Later    |
 
 ## Design Principles

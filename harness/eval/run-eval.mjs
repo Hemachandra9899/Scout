@@ -476,7 +476,14 @@ function extractPhase2SignalsFromResponse(response) {
     ),
     recoveryAttempted: Boolean(
       debug.recoveryAttempted ??
+      response?.debug?.recoveryAttempted ??
+      response?.rawToolResult?.debug?.recoveryAttempted ??
       response?.researchTrace?.some?.((stage) =>
+        String(stage.name ?? "").toLowerCase().includes("recovery_retry") ||
+        String(stage.name ?? "").toLowerCase().includes("retry"),
+      ) ??
+      response?.debug?.researchTrace?.some?.((stage) =>
+        String(stage.name ?? "").toLowerCase().includes("recovery_retry") ||
         String(stage.name ?? "").toLowerCase().includes("retry"),
       ),
     ),

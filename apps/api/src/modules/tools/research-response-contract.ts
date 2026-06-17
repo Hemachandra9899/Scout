@@ -78,6 +78,7 @@ export type ResearchResponseContract = RawOrchestratorOutput & {
     };
     memories: Record<string, unknown>;
     sourceRelevance: Record<string, unknown> | null;
+    recoveryAttempted: boolean;
   };
 };
 
@@ -87,6 +88,10 @@ export function buildResearchResponse(
   const { evidencePack, answer, crawlTrace, skippedCrawls, resourcesPlanned, memories } = raw;
 
   const warnings: string[] = [];
+
+  const recoveryAttempted = (raw.researchTrace ?? []).some((stage) =>
+    String(stage.name ?? "").toLowerCase().includes("recovery_retry"),
+  );
 
   const sourceRelevanceTrace = raw.researchTrace?.find((t) => t.name === "source_relevance");
   const sourceRelevance = sourceRelevanceTrace
@@ -174,6 +179,7 @@ export function buildResearchResponse(
       },
       memories: memories ?? {},
       sourceRelevance,
+      recoveryAttempted,
     },
   };
 }
