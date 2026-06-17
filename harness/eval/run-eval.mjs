@@ -519,6 +519,12 @@ function extractPhase2SignalsFromResponse(response) {
       response?.ui?.graph?.pathUsed ??
       response?.rawToolResult?.debug?.graphPathUsed,
     ),
+    graphReportUsed: Boolean(
+      debug.graphReportUsed ??
+      debug.graph?.reportUsed ??
+      response?.ui?.graph?.reportUsed ??
+      response?.rawToolResult?.debug?.graphReportUsed,
+    ),
   };
 }
 

@@ -12,6 +12,7 @@ import {
 import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
 import { buildAndPersistRepoGraph } from "@rlm-forge/knowledge";
+import { generateRepoGraphReport } from "@rlm-forge/knowledge/graph/repo-graph-report.js";
 
 export type RouterTier = 1 | 2 | 3;
 
@@ -286,6 +287,19 @@ function isRepoGraphQuestion(query: string): boolean {
   );
 }
 
+function isRepoGraphReportQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    q.includes("graph report") ||
+    q.includes("repo graph report") ||
+    q.includes("graph_report.md") ||
+    q.includes("graph_report") ||
+    q.includes("architecture graph report") ||
+    q.includes("summarize the codebase graph") ||
+    q.includes("generate.*graph.*report")
+  );
+}
+
 function includesAny(query: string, terms: string[]): boolean {
   const q = query.toLowerCase();
   return terms.some((term) => q.includes(term.toLowerCase()));
@@ -408,6 +422,15 @@ export function routeScoutQuery(query: string): RouterDecision {
       route: "direct_tool",
       tool: "github_repo",
       reason: "GitHub repository URL detected; use github_repo instead of sandbox codegen.",
+    };
+  }
+
+  if (isRepoGraphReportQuery(query)) {
+    return {
+      tier: 3,
+      route: "direct_tool",
+      tool: "query_graph",
+      reason: "Repo graph report request detected; generate graph report from persisted graph.",
     };
   }
 
@@ -1237,6 +1260,53 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           },
           graphContextUsed: graphContext.used,
         } : {}),
+      },
+    };
+  }
+
+  if (decision.tool === "query_graph" && isRepoGraphReportQuery(input.query)) {
+    const report = await generateRepoGraphReport({
+      projectId: input.projectId,
+      persist: true,
+    });
+
+    const critic = evaluateFaithfulness({
+      query: input.query,
+      answerMarkdown: report.markdown,
+      threshold: ROUTER_FAITHFULNESS_THRESHOLD,
+    });
+
+    return {
+      status: "ok",
+      route: decision,
+      critic,
+      ui: {
+        answerMarkdown: report.markdown,
+        citations: [],
+        evidenceCoverage: {},
+        faithfulness: critic,
+        graph: {
+          used: true,
+          reportUsed: true,
+          entities: report.entities,
+          relations: report.relations,
+        },
+      },
+      answer: report.markdown,
+      rawToolResult: report,
+      debug: {
+        memory,
+        graphContextUsed: true,
+        graphReportUsed: true,
+        graphReportNodeCount: report.debug.graphReportNodeCount,
+        graphReportRelationCount: report.debug.graphReportRelationCount,
+        graphReportHighDegreeCount: report.debug.graphReportHighDegreeCount,
+        graph: {
+          used: true,
+          reportUsed: true,
+          entityCount: report.debug.graphReportNodeCount,
+          relationCount: report.debug.graphReportRelationCount,
+        },
       },
     };
   }

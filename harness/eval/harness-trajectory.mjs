@@ -55,6 +55,12 @@ function extractPhase2Signals(response) {
       debug.graph?.pathUsed ??
       ui.graph?.pathUsed ??
       false,
+
+    graphReportUsed:
+      debug.graphReportUsed ??
+      debug.graph?.reportUsed ??
+      ui.graph?.reportUsed ??
+      false,
   };
 }
 

@@ -169,6 +169,7 @@ async function main() {
     graphifyRepoUsed: 0,
     repoGraphUsed: 0,
     graphPathUsed: 0,
+    graphReportUsed: 0,
   };
 
   for (const trajectory of trajectories) {
