@@ -173,14 +173,19 @@ export class MemoryManager {
 
   async search(input: ScoutMemorySearchInput): Promise<ScoutMemory[]> {
     const limit = input.limit ?? 8;
+
+    const userScopeWhere = input.userId
+      ? {
+          OR: [{ userId: input.userId }, { userId: null }],
+        }
+      : {
+          userId: null,
+        };
+
     const rows = await prisma.memory.findMany({
       where: {
         projectId: input.projectId,
-        ...(input.userId
-          ? {
-              OR: [{ userId: input.userId }, { userId: null }],
-            }
-          : {}),
+        ...userScopeWhere,
         ...(input.scopes?.length ? { scope: { in: input.scopes } } : {}),
         ...(input.kinds?.length ? { kind: { in: input.kinds } } : {}),
       },

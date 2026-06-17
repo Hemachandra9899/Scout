@@ -129,18 +129,18 @@ function buildMemoryContext(memories: ScoutMemory[]): string {
 
 function memoryDebug(memories: ScoutMemory[], setupWritten: number) {
   const recalledKinds = [...new Set(memories.map((m) => m.kind))];
-  const blockedSourceAvoided = memories.some(
-    (m) =>
-      m.kind === "source_failure" &&
-      ((m.metadata as any)?.domain_blocked || (m.metadata as any)?.user_blocked),
-  );
 
   return {
     setupWritten,
     recallUsed: memories.length > 0,
     recalledCount: memories.length,
     recalledKinds,
-    blockedSourceAvoided,
+    recalledMemoryIds: memories.map((m) => m.id),
+    blockedSourceAvoided: memories.some(
+      (m) =>
+        m.kind === "source_failure" &&
+        ((m.metadata as any)?.domain_blocked || (m.metadata as any)?.user_blocked),
+    ),
     sourceReuseUsed: memories.some((m) => m.kind === "source_quality"),
   };
 }

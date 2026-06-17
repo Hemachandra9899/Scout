@@ -9,9 +9,13 @@ const PROJECT_ID = process.env.EVAL_PROJECT_ID || process.env.BENCHMARK_PROJECT_
 const EVAL_TARGET = process.env.EVAL_TARGET || "rlm";
 const API_BASE_URL = (process.env.API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const RLM_RUNTIME_URL = (process.env.RLM_RUNTIME_URL || "http://localhost:8787").replace(/\/$/, "");
+const RUN_ID = new Date().toISOString().replace(/[:.]/g, "-");
+const EVAL_USER_ID =
+  process.env.EVAL_USER_ID ||
+  `harness-${RUN_ID}`;
 const OUTPUT_DIR =
   process.env.EVAL_OUTPUT_DIR ||
-  path.join("harness-runs", new Date().toISOString().replace(/[:.]/g, "-"));
+  path.join("harness-runs", RUN_ID);
 const CASES_DIR = process.env.EVAL_CASES_DIR || "harness/eval/cases";
 const MAX_CASES = Number(process.env.EVAL_MAX_CASES || 0);
 const REQUEST_TIMEOUT_MS = Number(process.env.EVAL_TIMEOUT_MS || 180_000);
@@ -199,9 +203,10 @@ async function callScout(caseItem) {
   }
 
   if (EVAL_TARGET === "router") {
+    const id = caseItem.id || "case";
     return postJson(`${API_BASE_URL}/router/answer`, {
       projectId: PROJECT_ID,
-      userId: caseItem.userId ?? "phase2-eval-user",
+      userId: caseItem.userId ?? `${EVAL_USER_ID}-${id}`,
       query: caseItem.query,
       setupMessages: caseItem.setupMessages ?? [],
       ...(caseItem.payload ?? {}),
