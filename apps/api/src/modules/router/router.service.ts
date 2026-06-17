@@ -78,19 +78,21 @@ async function writeSetupMemories(input: RouterAnswerInput): Promise<number> {
 }
 
 async function recallMemories(input: RouterAnswerInput): Promise<ScoutMemory[]> {
+  const kinds = [
+    "preference",
+    "fact",
+    "durable_fact",
+    "source_quality",
+    "source_failure",
+  ] as const;
+
   const [general, blockList] = await Promise.all([
     memoryManager.search({
       projectId: input.projectId,
       userId: input.userId,
       query: input.query,
       limit: 6,
-      kinds: [
-        "preference",
-        "fact",
-        "durable_fact",
-        "source_quality",
-        "source_failure",
-      ],
+      kinds: [...kinds],
     }),
     memoryManager.search({
       projectId: input.projectId,
@@ -101,15 +103,31 @@ async function recallMemories(input: RouterAnswerInput): Promise<ScoutMemory[]> 
     }),
   ]);
 
-  const seen = new Set<string>();
-  const merged: ScoutMemory[] = [];
-  for (const memory of [...general, ...blockList]) {
-    if (seen.has(memory.id)) continue;
-    seen.add(memory.id);
-    merged.push(memory);
+  if (!isRepoMemoryQuestion(input.query)) {
+    const seen = new Set<string>();
+    const merged: ScoutMemory[] = [];
+    for (const memory of [...general, ...blockList]) {
+      if (seen.has(memory.id)) continue;
+      seen.add(memory.id);
+      merged.push(memory);
+    }
+    return merged.slice(0, 8);
   }
 
-  return merged.slice(0, 8);
+  const repo = await memoryManager.search({
+    projectId: input.projectId,
+    userId: input.userId,
+    query: `${input.query} repo_memory github_repo important_files architecture modules`,
+    limit: 8,
+    kinds: ["durable_fact", "source_quality"],
+  });
+
+  const seen = new Set<string>();
+  return [...repo, ...general, ...blockList].filter((memory) => {
+    if (seen.has(memory.id)) return false;
+    seen.add(memory.id);
+    return true;
+  }).slice(0, 10);
 }
 
 function buildMemoryContext(memories: ScoutMemory[]): string {
@@ -195,6 +213,33 @@ function extractGithubRepoUrl(query: string): string | null {
   return (
     query.match(/https?:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:[/?#][^\s]*)?/i)?.[0] ??
     null
+  );
+}
+
+function isMemoRepoQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    hasGithubRepoUrl(query) &&
+    (
+      q.includes("memo this repo") ||
+      q.includes("remember this repo") ||
+      q.includes("save this repo") ||
+      q.includes("store this repo") ||
+      q.includes("analyze and save") ||
+      q.includes("remember repo")
+    )
+  );
+}
+
+function isRepoMemoryQuestion(query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    q.includes("this repo") ||
+    q.includes("the repo") ||
+    q.includes("repository") ||
+    q.includes("codebase") ||
+    q.includes("important files") ||
+    q.includes("modules")
   );
 }
 
@@ -284,6 +329,15 @@ export function routeScoutQuery(query: string): RouterDecision {
       tool: "search_kb",
       reason:
         "Query asks for private/unreleased information; verify KB first and return insufficient evidence if unavailable.",
+    };
+  }
+
+  if (isMemoRepoQuery(query)) {
+    return {
+      tier: 2,
+      route: "direct_tool",
+      tool: "github_repo",
+      reason: "Memo repo request detected; analyze GitHub repo and persist repo memories.",
     };
   }
 
@@ -760,10 +814,39 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       maxFiles: 30,
     });
 
+    let memoRepoWritten = 0;
+    let memoRepoUsed = false;
+
+    if (isMemoRepoQuery(input.query)) {
+      const repoDrafts = memoryManager.buildRepoMemories({
+        projectId: input.projectId,
+        userId: input.userId,
+        repoUrl: url,
+        repoName: (result as any).repo,
+        description: (result as any).description,
+        selectedFiles: (result as any).selectedFiles ?? [],
+        stack: (result as any).stack ?? [],
+        answer: (result as any).answer,
+      });
+
+      memoRepoWritten = await memoryManager.addMany(repoDrafts);
+      memoRepoUsed = memoRepoWritten > 0;
+    }
+
+    const memoRepoAnswer = isMemoRepoQuery(input.query)
+      ? [
+          result.answer,
+          "",
+          `## Memo saved`,
+          "",
+          `Saved ${memoRepoWritten} repo memory item(s) for future Scout repo questions.`,
+        ].join("\n")
+      : result.answer;
+
     const critic = evaluateFaithfulness({
       query: input.query,
-      answerMarkdown: result.answer,
-      toolPreviews: [{ tool: "github_repo", preview: result.answer, sources: result.sources ?? [] }],
+      answerMarkdown: memoRepoAnswer,
+      toolPreviews: [{ tool: "github_repo", preview: memoRepoAnswer, sources: result.sources ?? [] }],
       threshold: ROUTER_FAITHFULNESS_THRESHOLD,
     });
 
@@ -772,15 +855,19 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       route: decision,
       critic,
       ui: {
-        answerMarkdown: result.answer,
+        answerMarkdown: memoRepoAnswer,
         citations: result.sources ?? [],
         evidenceCoverage: {},
         faithfulness: critic,
       },
-      answer: result.answer,
+      answer: memoRepoAnswer,
       sources: result.sources ?? [],
       rawToolResult: result,
-      debug: { memory },
+      debug: {
+        memory,
+        memoRepoUsed,
+        memoRepoWritten,
+      },
     };
   }
 

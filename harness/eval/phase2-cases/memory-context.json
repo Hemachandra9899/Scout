@@ -90,5 +90,41 @@
     },
     "minGroundedRatio": 0,
     "maxLatencyMs": 90000
+  },
+  {
+    "id": "phase2-memo-repo-001",
+    "intent": "memo_repo",
+    "description": "Scout should analyze and save a GitHub repo as reusable memory.",
+    "query": "Memo this repo https://github.com/Hemachandra9899/Scout and remember the important architecture details.",
+    "expectedTier": 2,
+    "expectedTool": "github_repo",
+    "mustMention": ["Memo saved", "repo memory", "Scout"],
+    "expectedPhase2": {
+      "recallUsed": false,
+      "memoRepoUsed": true
+    },
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 120000
+  },
+  {
+    "id": "phase2-memo-repo-followup-001",
+    "intent": "memo_repo_followup",
+    "description": "Scout should reuse memo repo memory for a later repo architecture question.",
+    "setupMessages": [
+      {
+        "role": "user",
+        "content": "Remember source https://github.com/Hemachandra9899/Scout as useful repo context for Scout architecture."
+      }
+    ],
+    "query": "From remembered repo context, what are the important Scout architecture components?",
+    "expectedTier": 1,
+    "expectedTool": "search_kb",
+    "mustMention": ["API", "worker", "RLM runtime"],
+    "expectedPhase2": {
+      "recallUsed": true,
+      "sourceReuseUsed": true
+    },
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 90000
   }
 ]

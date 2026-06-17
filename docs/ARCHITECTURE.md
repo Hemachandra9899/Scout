@@ -18,9 +18,11 @@ Scout is an evidence-first AI research engine. It routes each query to the cheap
 | Phase 2.3 targeted eval | 1/1 |
 | Phase 2.4 project graph context | Complete |
 | Phase 2.4 targeted eval | 1/1 |
-| Memory signals | `recallUsed=true`, `blockedSourceAvoided=true`, `sourceReuseUsed=true` |
+| Phase 2.5 memo repo | Complete |
+| Phase 2.5 targeted eval | 2/2 |
+| Memory signals | `recallUsed=true`, `blockedSourceAvoided=true`, `sourceReuseUsed=true`, `memoRepoUsed=true` |
 | Graph signal | `graphContextUsed=true` |
-| Next milestone | Phase 2.5 MCP/connectors with safety gates |
+| Next milestone | Phase 3 Graphify/Graphiti-style repo graph |
 
 ## End-to-End Flow
 
@@ -301,6 +303,7 @@ sourceReuseUsed
 setupWritten
 recoveryAttempted
 graphContextUsed (debug.graphContextUsed / debug.graph.used / ui.graph.used)
+memoRepoUsed (debug.memoRepoUsed)
 ```
 
 ## Phase 2 Roadmap
@@ -312,7 +315,8 @@ graphContextUsed (debug.graphContextUsed / debug.graph.used / ui.graph.used)
 | 2.2   | Source reuse from prior successful research | Complete |
 | 2.3   | Bounded evidence recovery                   | Complete |
 | 2.4   | Lightweight project/entity graph            | Complete |
-| 2.5   | MCP/connectors with safety gates            | Next     |
+| 2.5   | Memo Repo / Remember Repo memory            | Complete |
+| 3.0   | Graphify/Graphiti-style repo graph          | Next     |
 
 ## Design Principles
 

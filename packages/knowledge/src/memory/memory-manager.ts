@@ -162,6 +162,23 @@ function tierConfidence(item: EvidenceItem): number {
   return 0.65;
 }
 
+function extractRepoFullNameFromUrl(url: string): string | null {
+  const match = url.match(/github\.com\/([^/\s]+)\/([^/\s?#]+)/i);
+  if (!match) return null;
+  return `${match[1]}/${match[2].replace(/\.git$/i, "")}`;
+}
+
+export type RepoMemoryInput = {
+  projectId: string;
+  userId?: string;
+  repoUrl: string;
+  repoName?: string;
+  description?: string | null;
+  selectedFiles?: string[];
+  stack?: string[];
+  answer?: string;
+};
+
 export class MemoryManager {
   async addMany(drafts: ScoutMemoryDraft[]): Promise<number> {
     const deduped = dedupeDrafts(drafts);
@@ -418,6 +435,92 @@ export class MemoryManager {
         },
       });
     });
+
+    return dedupeDrafts(drafts);
+  }
+
+  buildRepoMemories(input: RepoMemoryInput): ScoutMemoryDraft[] {
+    const repoName = input.repoName ?? extractRepoFullNameFromUrl(input.repoUrl);
+    if (!repoName) return [];
+
+    const selectedFiles = input.selectedFiles ?? [];
+    const stack = input.stack ?? [];
+    const answer = input.answer ?? "";
+
+    const drafts: ScoutMemoryDraft[] = [
+      {
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "source",
+        kind: "source_quality",
+        text: `GitHub repository ${repoName} was analyzed and saved as useful repo context.`,
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, "github_repo", "repo_memory", ...stack],
+        confidence: 0.95,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          stack,
+          selectedFiles,
+        },
+      },
+      {
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "project",
+        kind: "durable_fact",
+        text: `Repository ${repoName} contains these detected components: ${stack.length ? stack.join(", ") : "unknown stack"}.`,
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, ...stack],
+        confidence: 0.85,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          factType: "repo_stack",
+        },
+      },
+    ];
+
+    if (selectedFiles.length > 0) {
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "project",
+        kind: "durable_fact",
+        text: `Repository ${repoName} important files include: ${selectedFiles.slice(0, 20).join(", ")}.`,
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, "important_files"],
+        confidence: 0.85,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          selectedFiles: selectedFiles.slice(0, 50),
+          factType: "repo_files",
+        },
+      });
+    }
+
+    if (answer.trim()) {
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "project",
+        kind: "durable_fact",
+        text: answer.slice(0, 3000),
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, "repo_summary"],
+        confidence: 0.8,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          factType: "repo_summary",
+        },
+      });
+    }
 
     return dedupeDrafts(drafts);
   }

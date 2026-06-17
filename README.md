@@ -540,13 +540,17 @@ Search providers are optional. Scout uses whatever is configured and deduplicate
 - [x] Lightweight project/entity graph
 - [x] Expose `graphContextUsed=true`
 - [x] Add Phase 2.4 targeted eval pass
+- [x] Memo Repo / Remember Repo memory
+- [x] Expose `memoRepoUsed=true`
+- [x] Add Phase 2.5 targeted eval passes
 
-### Next: Phase 2.5
+### Next: Phase 3
 
-- [ ] MCP/connectors with safety rules
+- [ ] Graphify/Graphiti-style repo graph
 
 ### Later
 
+- [ ] MCP/connectors with safety rules
 - [ ] Recursion only after eval proves the need
 
 ---

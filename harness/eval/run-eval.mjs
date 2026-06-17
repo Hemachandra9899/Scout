@@ -494,6 +494,11 @@ function extractPhase2SignalsFromResponse(response) {
       response?.rawToolResult?.debug?.graphContextUsed ??
       response?.rawToolResult?.debug?.graph?.used,
     ),
+    memoRepoUsed: Boolean(
+      debug.memoRepoUsed ??
+      debug.memory?.memoRepoUsed ??
+      response?.rawToolResult?.debug?.memoRepoUsed,
+    ),
   };
 }
 

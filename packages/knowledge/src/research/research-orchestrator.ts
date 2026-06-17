@@ -595,15 +595,15 @@ export class ResearchOrchestrator {
     // try to find actual evidence for those gaps.
     const finalMissing = missingGroups.length > 0 ? missingGroups : [];
 
-    if (finalMissing.length > 0) {
+    if (finalMissing.length > 0 || answer.status === "insufficient_evidence") {
       recoveryAttempted = true;
 
       const recoveryQueries = [
         ...buildFocusedResearchQueries(input.query),
-        ...finalMissing.flatMap((g) => [
+        ...(finalMissing.length > 0 ? finalMissing.flatMap((g) => [
           `${input.query} ${g}`,
           `${g} ${input.query}`,
-        ]),
+        ]) : []),
       ].filter((q, i, a) => a.indexOf(q) === i).slice(0, 6);
 
       const recoveryResources: RankedResource[] = [];
@@ -687,7 +687,10 @@ export class ResearchOrchestrator {
         researchConfig.stageTimeoutMs);
 
         const recoveryMissing = missingRequiredSynthesisGroups(recoveryAnswer.markdown, input.query);
-        if (recoveryMissing.length < finalMissing.length) {
+        const recoveryImproved = finalMissing.length > 0
+          ? recoveryMissing.length < finalMissing.length
+          : recoveryAnswer.status !== "insufficient_evidence";
+        if (recoveryImproved) {
           answer.markdown = recoveryAnswer.markdown;
           answer.citations = recoveryAnswer.citations;
           answer.usedEvidenceCount = recoveryAnswer.usedEvidenceCount;
