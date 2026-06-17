@@ -12,8 +12,10 @@ Scout is an evidence-first AI research engine. It routes each query to the cheap
 | Mean reward | 6.0 |
 | Phase 2.1 scoped memory recall | Complete |
 | Phase 2.1 targeted eval | 2/2 |
-| Memory signals | `recallUsed=true`, `blockedSourceAvoided=true` |
-| Next milestone | Phase 2.2 source reuse |
+| Phase 2.2 source reuse | Complete |
+| Phase 2.2 targeted eval | 1/1 |
+| Memory signals | `recallUsed=true`, `blockedSourceAvoided=true`, `sourceReuseUsed=true` |
+| Next milestone | Phase 2.3 bounded evidence recovery |
 
 ## End-to-End Flow
 
@@ -226,7 +228,8 @@ Current supported memory behaviors:
 | Scoped recall by `projectId` + `userId` | Complete |
 | Global memory isolation                 | Complete |
 | Memory debug signals                    | Complete |
-| Source reuse from prior research        | Next     |
+| Source reuse from prior research        | Complete |
+| Bounded evidence recovery               | Next     |
 | Graph context                           | Later    |
 
 Memory kinds:
@@ -291,12 +294,12 @@ recalledKinds
 blockedSourceAvoided
 sourceReuseUsed
 setupWritten
+recoveryAttempted
 ```
 
 Future signals:
 
 ```text
-recoveryAttempted
 graphContextUsed
 ```
 
@@ -306,8 +309,8 @@ graphContextUsed
 | ----- | ------------------------------------------- | -------- |
 | 2.0   | Memory/context eval cases                   | Complete |
 | 2.1   | Scoped memory recall                        | Complete |
-| 2.2   | Source reuse from prior successful research | Next     |
-| 2.3   | Bounded evidence recovery/self-healing      | Later    |
+| 2.2   | Source reuse from prior successful research | Complete |
+| 2.3   | Bounded evidence recovery                   | Next     |
 | 2.4   | Lightweight project/entity graph            | Later    |
 | 2.5   | MCP/connectors with safety gates            | Later    |
 

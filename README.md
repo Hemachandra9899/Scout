@@ -96,7 +96,8 @@ Scout does not just generate. It researches, indexes, verifies, remembers — an
 | Eval harness + CI gate | Complete |
 | Scoped memory recall | Complete |
 | Blocked source memory | Complete |
-| Source reuse | Next |
+| Source reuse | Complete |
+| Bounded evidence recovery | Next |
 | Graph context | Later |
 | MCP/connectors | Later |
 | Recursion/self-healing | Later |
@@ -212,6 +213,7 @@ recalledKinds
 blockedSourceAvoided
 sourceReuseUsed
 setupWritten
+recoveryAttempted
 ```
 
 Memory isolation:
@@ -517,16 +519,21 @@ Search providers are optional. Scout uses whatever is configured and deduplicate
 - [x] Scoped memory recall
 - [x] Blocked source memory
 
-### Next: Phase 2.2
+### Complete
 
-- [ ] Reuse prior successful research sources
-- [ ] Use `source_quality` memories to seed future research
-- [ ] Expose `sourceReuseUsed=true`
-- [ ] Add targeted source-reuse eval pass
+- [x] Scoped memory recall
+- [x] Blocked source memory
+- [x] Source reuse from prior research
+- [x] Expose `sourceReuseUsed=true`
+
+### Next: Phase 2.3
+
+- [ ] Bounded evidence recovery
+- [ ] Expose `recoveryAttempted=true`
+- [ ] Add targeted recovery eval pass
 
 ### Later
 
-- [ ] Bounded evidence recovery
 - [ ] Lightweight project/entity graph
 - [ ] MCP/connectors with safety rules
 - [ ] Recursion only after eval proves the need
