@@ -58,7 +58,9 @@
     "./graph/project-context-graph": "./src/graph/project-context-graph.js",
     "./graph/project-context-graph.js": "./src/graph/project-context-graph.js",
     "./graph/repo-graph-builder": "./src/graph/repo-graph-builder.js",
-    "./graph/repo-graph-builder.js": "./src/graph/repo-graph-builder.js"
+    "./graph/repo-graph-builder.js": "./src/graph/repo-graph-builder.js",
+    "./graph/repo-graph-query": "./src/graph/repo-graph-query.js",
+    "./graph/repo-graph-query.js": "./src/graph/repo-graph-query.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",

@@ -513,6 +513,12 @@ function extractPhase2SignalsFromResponse(response) {
       response?.rawToolResult?.debug?.repoGraphUsed ??
       response?.rawToolResult?.debug?.repoGraph?.used,
     ),
+    graphPathUsed: Boolean(
+      debug.graphPathUsed ??
+      debug.graph?.pathUsed ??
+      response?.ui?.graph?.pathUsed ??
+      response?.rawToolResult?.debug?.graphPathUsed,
+    ),
   };
 }
 

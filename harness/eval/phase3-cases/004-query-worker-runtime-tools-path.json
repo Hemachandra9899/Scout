@@ -1,0 +1,16 @@
+{
+  "id": "phase3-query-worker-runtime-tools-path-001",
+  "intent": "query_repo_graph",
+  "description": "Scout should answer worker-runtime-tools connection questions from graph paths.",
+  "query": "Using the repo graph, how do worker, RLM runtime, and tools connect?",
+  "expectedTier": 3,
+  "expectedTool": "query_graph",
+  "mustMention": ["worker", "runtime", "tools"],
+  "mustNotClaim": [],
+  "expectedPhase2": {
+    "repoGraphUsed": true,
+    "graphPathUsed": true
+  },
+  "minGroundedRatio": 0,
+  "maxLatencyMs": 90000
+}

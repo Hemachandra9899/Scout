@@ -49,6 +49,12 @@ function extractPhase2Signals(response) {
       debug.repoGraph?.used ??
       ui.repoGraph?.used ??
       false,
+
+    graphPathUsed:
+      debug.graphPathUsed ??
+      debug.graph?.pathUsed ??
+      ui.graph?.pathUsed ??
+      false,
   };
 }
 

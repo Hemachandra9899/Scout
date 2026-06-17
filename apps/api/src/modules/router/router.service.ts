@@ -858,7 +858,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       projectId: input.projectId,
       url,
       mode: "summary",
-      maxFiles: 30,
+      maxFiles: 80,
     });
 
     let memoRepoWritten = 0;
@@ -1212,28 +1212,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       depth: 2,
     });
 
-    const entities = graphResult.entities ?? [];
-    const relations = graphResult.relations ?? [];
-
-    const answerMarkdown = [
-      "## Repo Code Graph",
-      "",
-      entities.length > 0
-        ? `Found ${entities.length} entities and ${relations.length} relations.`
-        : "No graph entities or relations found. Try graphifying a repo first with \"graphify this repo <url>\".",
-      "",
-      ...entities.slice(0, 15).map((e: any) => {
-        const rels = relations.filter(
-          (r: any) => r.sourceEntityId === e.id || r.targetEntityId === e.id,
-        );
-        const relSummary = rels.length > 0
-          ? ` — ${rels.length} relation(s)`
-          : "";
-        return `- **${e.name}** (${e.type})${relSummary}`;
-      }),
-      "",
-      "Use more specific queries to drill into the graph.",
-    ].filter(Boolean).join("\n");
+    const answerMarkdown = (graphResult as any).answer ?? (graphResult as any).markdown ?? "No graph data found.";
+    const grpDebug = (graphResult as any).debug ?? {};
 
     const critic = evaluateFaithfulness({
       query: input.query,
@@ -1249,7 +1229,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         answerMarkdown,
         citations: [],
         evidenceCoverage: {
-          hasEvidence: entities.length > 0,
+          hasEvidence: (graphResult as any).entities?.length > 0,
           claimCount: 0,
           supportedClaimCount: 0,
           weakClaimCount: 0,
@@ -1257,14 +1237,30 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           missing: [],
         },
         faithfulness: critic,
+        graph: {
+          used: grpDebug.repoGraphUsed ?? false,
+          pathUsed: grpDebug.graphPathUsed ?? false,
+          paths: (graphResult as any).paths ?? [],
+          entities: (graphResult as any).entities ?? [],
+          relations: (graphResult as any).relations ?? [],
+        },
       },
       answer: answerMarkdown,
       rawToolResult: graphResult,
       debug: {
         memory,
-        repoGraphUsed: true,
-        repoGraphEntityCount: entities.length,
-        repoGraphRelationCount: relations.length,
+        repoGraphUsed: grpDebug.repoGraphUsed ?? false,
+        graphContextUsed: true,
+        graphPathUsed: grpDebug.graphPathUsed ?? false,
+        graphPathCount: grpDebug.graphPathCount ?? 0,
+        graph: {
+          used: grpDebug.repoGraphUsed ?? false,
+          pathUsed: grpDebug.graphPathUsed ?? false,
+          pathCount: grpDebug.graphPathCount ?? 0,
+          entityCount: grpDebug.graphEntityCount ?? 0,
+          relationCount: grpDebug.graphRelationCount ?? 0,
+          traversalDepth: grpDebug.graphTraversalDepth ?? 0,
+        },
       },
     };
   }

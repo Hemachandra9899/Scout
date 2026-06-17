@@ -1,0 +1,16 @@
+{
+  "id": "phase3-query-router-documents-path-001",
+  "intent": "query_repo_graph",
+  "description": "Scout should answer router-documents connection questions from graph paths.",
+  "query": "Using the repo graph, show the connection path between the router and documents.",
+  "expectedTier": 3,
+  "expectedTool": "query_graph",
+  "mustMention": ["router", "documents"],
+  "mustNotClaim": [],
+  "expectedPhase2": {
+    "repoGraphUsed": true,
+    "graphPathUsed": true
+  },
+  "minGroundedRatio": 0,
+  "maxLatencyMs": 90000
+}
