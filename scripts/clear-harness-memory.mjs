@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { prisma } from "@rlm-forge/database/prisma.js";
+import { prisma } from "../packages/database/src/prisma.ts";
 
 const projectId = process.env.EVAL_PROJECT_ID;
 
@@ -15,10 +15,14 @@ const result = await prisma.memory.deleteMany({
       { userId: { contains: "harness" } },
       { userId: { contains: "phase2" } },
       { userId: { contains: "eval" } },
+      { userId: null },
     ],
   },
 });
 
 console.log(`Deleted ${result.count} harness memory row(s).`);
+
+const remaining = await prisma.memory.count({ where: { projectId } });
+console.log(`Remaining memories for project: ${remaining}`);
 
 await prisma.$disconnect();

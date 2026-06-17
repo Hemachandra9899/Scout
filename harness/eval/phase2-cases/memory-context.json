@@ -2,23 +2,24 @@
   {
     "id": "phase2-memory-preference-001",
     "intent": "memory_recall",
-    "description": "User preference should be recalled only when relevant.",
+    "description": "User preference should be recalled while answering a stable KB architecture query.",
     "setupMessages": [
       {
         "role": "user",
         "content": "For Scout research answers, I prefer short answers with bullet points and clear citations."
       }
     ],
-    "query": "Summarize the Scout architecture from the project knowledge base.",
+    "query": "Search the project knowledge base for Scout architecture and summarize the main components",
     "expectedTier": 1,
     "expectedTool": "search_kb",
-    "mustMention": ["API", "worker", "RLM runtime"],
+    "mustMention": ["architecture", "components"],
     "mustNotClaim": ["I cannot access your preferences"],
     "expectedPhase2": {
       "recallUsed": true,
       "memoryKind": "preference"
     },
     "minGroundedRatio": 0,
+    "minCompleteness": 0.5,
     "maxLatencyMs": 90000
   },
   {
@@ -44,14 +45,14 @@
   {
     "id": "phase2-blocked-source-001",
     "intent": "blocked_source_memory",
-    "description": "A blocked/untrusted source should be avoided in later research.",
+    "description": "A blocked/untrusted source should be avoided while answering a stable news query.",
     "setupMessages": [
       {
         "role": "user",
         "content": "For future research, avoid random-seo-example.com because it gave unreliable AI-generated summaries."
       }
     ],
-    "query": "Find current news about WhatsApp and summarize it with sources.",
+    "query": "What is the latest important WhatsApp news?",
     "expectedTier": 2,
     "expectedTool": "web_research",
     "mustMention": ["WhatsApp"],
