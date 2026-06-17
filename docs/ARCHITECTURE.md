@@ -14,8 +14,13 @@ Scout is an evidence-first AI research engine. It routes each query to the cheap
 | Phase 2.1 targeted eval | 2/2 |
 | Phase 2.2 source reuse | Complete |
 | Phase 2.2 targeted eval | 1/1 |
+| Phase 2.3 bounded evidence recovery | Complete |
+| Phase 2.3 targeted eval | 1/1 |
+| Phase 2.4 project graph context | Complete |
+| Phase 2.4 targeted eval | 1/1 |
 | Memory signals | `recallUsed=true`, `blockedSourceAvoided=true`, `sourceReuseUsed=true` |
-| Next milestone | Phase 2.3 bounded evidence recovery |
+| Graph signal | `graphContextUsed=true` |
+| Next milestone | Phase 2.5 MCP/connectors with safety gates |
 
 ## End-to-End Flow
 
@@ -285,7 +290,7 @@ durable_fact → context only when relevant
 
 ## Debug Signals
 
-Phase 2 debug signals are exposed under `debug.memory` and harness trajectories:
+Phase 2 debug signals are exposed under `debug.memory`, `debug.graph`, and harness trajectories:
 
 ```text
 recallUsed
@@ -295,12 +300,7 @@ blockedSourceAvoided
 sourceReuseUsed
 setupWritten
 recoveryAttempted
-```
-
-Future signals:
-
-```text
-graphContextUsed
+graphContextUsed (debug.graphContextUsed / debug.graph.used / ui.graph.used)
 ```
 
 ## Phase 2 Roadmap
@@ -311,8 +311,8 @@ graphContextUsed
 | 2.1   | Scoped memory recall                        | Complete |
 | 2.2   | Source reuse from prior successful research | Complete |
 | 2.3   | Bounded evidence recovery                   | Complete |
-| 2.4   | Lightweight project/entity graph            | Next     |
-| 2.5   | MCP/connectors with safety gates            | Later    |
+| 2.4   | Lightweight project/entity graph            | Complete |
+| 2.5   | MCP/connectors with safety gates            | Next     |
 
 ## Design Principles
 

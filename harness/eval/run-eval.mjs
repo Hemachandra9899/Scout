@@ -490,7 +490,9 @@ function extractPhase2SignalsFromResponse(response) {
     graphContextUsed: Boolean(
       debug.graphContextUsed ??
       debug.graph?.used ??
-      response?.ui?.graph?.used,
+      response?.ui?.graph?.used ??
+      response?.rawToolResult?.debug?.graphContextUsed ??
+      response?.rawToolResult?.debug?.graph?.used,
     ),
   };
 }

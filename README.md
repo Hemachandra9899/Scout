@@ -97,8 +97,8 @@ Scout does not just generate. It researches, indexes, verifies, remembers — an
 | Scoped memory recall | Complete |
 | Blocked source memory | Complete |
 | Source reuse | Complete |
-| Bounded evidence recovery | Next |
-| Graph context | Later |
+| Bounded evidence recovery | Complete |
+| Graph context | Complete |
 | MCP/connectors | Later |
 | Recursion/self-healing | Later |
 
@@ -214,6 +214,7 @@ blockedSourceAvoided
 sourceReuseUsed
 setupWritten
 recoveryAttempted
+graphContextUsed
 ```
 
 Memory isolation:
@@ -302,6 +303,14 @@ Add-only memory layer.
 
 ```
 memory-manager.ts     memory-types.ts
+```
+
+### `packages/knowledge/src/graph/`
+
+Deterministic project entity graph for architecture/component queries.
+
+```
+project-context-graph.ts
 ```
 
 ---
@@ -528,15 +537,16 @@ Search providers are optional. Scout uses whatever is configured and deduplicate
 - [x] Bounded evidence recovery
 - [x] Expose `recoveryAttempted=true`
 - [x] Add targeted recovery eval pass
+- [x] Lightweight project/entity graph
+- [x] Expose `graphContextUsed=true`
+- [x] Add Phase 2.4 targeted eval pass
 
-### Next: Phase 2.4
+### Next: Phase 2.5
 
-- [ ] Lightweight project/entity graph
+- [ ] MCP/connectors with safety rules
 
 ### Later
 
-- [ ] Lightweight project/entity graph
-- [ ] MCP/connectors with safety rules
 - [ ] Recursion only after eval proves the need
 
 ---

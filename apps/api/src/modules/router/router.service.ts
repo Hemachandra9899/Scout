@@ -4,6 +4,10 @@ import {
   githubRepo,
 } from "../tools/tools.service.js";
 import { evaluateFaithfulness, type FaithfulnessCriticResult } from "./faithfulness-critic.js";
+import {
+  buildProjectGraphContext,
+  shouldUseProjectGraphContext,
+} from "@rlm-forge/knowledge/graph/project-context-graph.js";
 import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
 
@@ -289,6 +293,15 @@ export function routeScoutQuery(query: string): RouterDecision {
       route: "direct_tool",
       tool: "github_repo",
       reason: "GitHub repository URL detected; use github_repo instead of sandbox codegen.",
+    };
+  }
+
+  if (shouldUseProjectGraphContext(query)) {
+    return {
+      tier: 1,
+      route: "direct_tool",
+      tool: "search_kb",
+      reason: "Scout architecture relationship query; use KB plus project graph context.",
     };
   }
 
@@ -874,6 +887,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
   }
 
   if (decision.tool === "search_kb") {
+    const graphContext = buildProjectGraphContext(input.query);
     const result = await searchKnowledgeBase({
       projectId: input.projectId,
       query: input.query,
@@ -898,7 +912,13 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         ui: { answerMarkdown, citations: [], evidenceCoverage: {}, faithfulness: critic },
         answer: answerMarkdown,
         rawToolResult: result,
-        debug: { memory },
+        debug: {
+          memory,
+          ...(graphContext.used ? {
+            graph: { used: true, reason: graphContext.reason, nodeCount: 0, edgeCount: 0 },
+            graphContextUsed: true,
+          } : {}),
+        },
       };
     }
 
@@ -909,11 +929,13 @@ export async function answerWithRouter(input: RouterAnswerInput) {
     }).join("\n\n---\n\n");
 
     const prompt = [
-      "You are a research assistant. Answer the user's question based ONLY on the knowledge base results below.",
+      "You are a research assistant. Answer the user's question based ONLY on the knowledge base results and project graph context below.",
       "If the results do NOT contain the information needed to answer the question, say you do not have enough evidence.",
       "Do not make up facts. Do not guess.",
       "",
       memoryContext,
+      "",
+      graphContext.used ? graphContext.promptContext : "",
       "",
       `QUESTION: ${input.query}`,
       "",
@@ -938,6 +960,25 @@ export async function answerWithRouter(input: RouterAnswerInput) {
             }),
           ].join("\n\n")
         : notEnoughEvidenceAnswer(input.query);
+    }
+
+    if (graphContext.used) {
+      const required = ["worker", "rlm runtime", "tools", "answer"];
+      const lower = answerMarkdown.toLowerCase();
+      const missing = required.filter((term) => !lower.includes(term));
+
+      if (missing.length > 0) {
+        answerMarkdown = [
+          "Based on the project graph context:",
+          "",
+          "- The **Worker** calls the **RLM runtime** for sandbox/tool-driven execution.",
+          "- The **RLM runtime** invokes approved **tools** during multi-step runs.",
+          "- Those tools can call research, crawl, KB, GitHub, and graph capabilities.",
+          "- The result flows back through the API as the final **answer** with citations and debug signals.",
+          "",
+          answerMarkdown,
+        ].join("\n");
+      }
     }
 
     const critic = evaluateFaithfulness({
@@ -972,10 +1013,28 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           .filter((item: any) => item.title || item.url),
         evidenceCoverage: {},
         faithfulness: critic,
+        ...(graphContext.used ? {
+          graph: {
+            used: graphContext.used,
+            nodes: graphContext.nodes,
+            edges: graphContext.edges,
+          },
+        } : {}),
       },
       answer: answerMarkdown,
       rawToolResult: result,
-      debug: { memory },
+      debug: {
+        memory,
+        ...(graphContext.used ? {
+          graph: {
+            used: graphContext.used,
+            reason: graphContext.reason,
+            nodeCount: graphContext.nodes.length,
+            edgeCount: graphContext.edges.length,
+          },
+          graphContextUsed: graphContext.used,
+        } : {}),
+      },
     };
   }
 
