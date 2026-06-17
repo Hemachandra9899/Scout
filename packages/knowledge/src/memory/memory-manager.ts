@@ -129,6 +129,20 @@ function looksLikePreference(text: string): boolean {
   );
 }
 
+function extractTopicEntities(text: string): string[] {
+  const products: string[] = text.match(/\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+/g) ?? [];
+  const apiMatches: string[] = text.match(/\b[A-Z][a-z]+(?:\s+API)\b/g) ?? [];
+  return [...new Set([...products, ...apiMatches])];
+}
+
+function looksLikeSourceSave(text: string): boolean {
+  const q = text.toLowerCase();
+  return (
+    (q.includes("save") && q.includes("sourc")) ||
+    (q.includes("remember") && q.includes("sourc"))
+  );
+}
+
 function looksLikeBlockedSource(text: string): boolean {
   const q = text.toLowerCase();
   return (
@@ -221,6 +235,24 @@ export class MemoryManager {
         confidence: 0.95,
         metadata: {
           source: "explicit_user_message",
+        },
+      });
+    }
+
+    if (looksLikeSourceSave(text)) {
+      const topicEntities = extractTopicEntities(text);
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "source",
+        kind: "source_quality",
+        text: `User wants to save useful official sources: ${text}`,
+        sourceUrls: [],
+        entities: topicEntities,
+        confidence: 0.9,
+        metadata: {
+          source: "explicit_user_message",
+          sourceSaveRequest: true,
         },
       });
     }
