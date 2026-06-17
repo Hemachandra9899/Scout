@@ -41,3 +41,4 @@ export * from "./research/source-relevance.js";
 export * from "./research/news-query-planner.js";
 export * from "./research/official-source-catalog.js";
 export * from "./research/seeded-resources.js";
+export * from "./graph/repo-graph-builder.js";

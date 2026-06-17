@@ -30,6 +30,7 @@
     "eval": "npm run harness:eval",
     "eval:ci": "npm run harness:ci",
     "eval:phase2": "EVAL_TARGET=router EVAL_CASES_DIR=harness/eval/phase2-cases node harness/eval/run-eval.mjs",
+    "eval:phase3": "EVAL_TARGET=router EVAL_CASES_DIR=harness/eval/phase3-cases node harness/eval/run-eval.mjs",
     "eval:analyze": "npm run harness:analyze",
     "harness:research": "node harness/run-research-benchmark.mjs",
     "harness:eval": "node harness/eval/run-eval.mjs",

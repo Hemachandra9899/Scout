@@ -499,6 +499,20 @@ function extractPhase2SignalsFromResponse(response) {
       debug.memory?.memoRepoUsed ??
       response?.rawToolResult?.debug?.memoRepoUsed,
     ),
+    graphifyRepoUsed: Boolean(
+      debug.graphifyRepoUsed ??
+      debug.graphify?.used ??
+      response?.ui?.graphify?.used ??
+      response?.rawToolResult?.debug?.graphifyRepoUsed ??
+      response?.rawToolResult?.debug?.graphify?.used,
+    ),
+    repoGraphUsed: Boolean(
+      debug.repoGraphUsed ??
+      debug.repoGraph?.used ??
+      response?.ui?.repoGraph?.used ??
+      response?.rawToolResult?.debug?.repoGraphUsed ??
+      response?.rawToolResult?.debug?.repoGraph?.used,
+    ),
   };
 }
 

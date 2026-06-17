@@ -2,6 +2,7 @@ import {
   webResearch,
   searchKnowledgeBase,
   githubRepo,
+  queryGraph,
 } from "../tools/tools.service.js";
 import { evaluateFaithfulness, type FaithfulnessCriticResult } from "./faithfulness-critic.js";
 import {
@@ -10,13 +11,14 @@ import {
 } from "@rlm-forge/knowledge/graph/project-context-graph.js";
 import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
+import { buildAndPersistRepoGraph } from "@rlm-forge/knowledge";
 
 export type RouterTier = 1 | 2 | 3;
 
 export type RouterDecision = {
   tier: RouterTier;
   route: "direct_tool" | "research_orchestrator" | "sandbox" | "direct_model";
-  tool: "search_kb" | "github_repo" | "web_research" | "sandbox" | "direct_model";
+  tool: "search_kb" | "github_repo" | "web_research" | "sandbox" | "direct_model" | "query_graph";
   reason: string;
 };
 
@@ -243,6 +245,33 @@ function isRepoMemoryQuestion(query: string): boolean {
   );
 }
 
+function isGraphifyRepoQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    hasGithubRepoUrl(query) &&
+    (
+      q.includes("graphify") ||
+      q.includes("graph this repo") ||
+      q.includes("build graph") ||
+      q.includes("build code graph") ||
+      q.includes("build repo graph") ||
+      (q.includes("code graph") && q.includes("repo"))
+    )
+  );
+}
+
+function isRepoGraphQuestion(query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    q.includes("repo graph") ||
+    q.includes("code graph") ||
+    q.includes("graph query") ||
+    q.includes("query graph") ||
+    (q.includes("graph") && q.includes("entity")) ||
+    (q.includes("graph") && q.includes("relation"))
+  );
+}
+
 function includesAny(query: string, terms: string[]): boolean {
   const q = query.toLowerCase();
   return terms.some((term) => q.includes(term.toLowerCase()));
@@ -341,12 +370,30 @@ export function routeScoutQuery(query: string): RouterDecision {
     };
   }
 
+  if (isGraphifyRepoQuery(query)) {
+    return {
+      tier: 2,
+      route: "direct_tool",
+      tool: "github_repo",
+      reason: "Graphify repo request detected; analyze GitHub repo and build code graph.",
+    };
+  }
+
   if (hasGithubRepoUrl(query)) {
     return {
       tier: 2,
       route: "direct_tool",
       tool: "github_repo",
       reason: "GitHub repository URL detected; use github_repo instead of sandbox codegen.",
+    };
+  }
+
+  if (isRepoGraphQuestion(query)) {
+    return {
+      tier: 3,
+      route: "direct_tool",
+      tool: "query_graph",
+      reason: "Repo graph query detected; query persisted Entity/Relation graph.",
     };
   }
 
@@ -816,6 +863,9 @@ export async function answerWithRouter(input: RouterAnswerInput) {
 
     let memoRepoWritten = 0;
     let memoRepoUsed = false;
+    let graphifyRepoUsed = false;
+    let graphifyNodeCount = 0;
+    let graphifyEdgeCount = 0;
 
     if (isMemoRepoQuery(input.query)) {
       const repoDrafts = memoryManager.buildRepoMemories({
@@ -833,6 +883,20 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       memoRepoUsed = memoRepoWritten > 0;
     }
 
+    if (isGraphifyRepoQuery(input.query)) {
+      const repoFiles = ((result as any).files ?? []) as Array<{ path: string; text: string }>;
+      if (repoFiles.length > 0) {
+        const graphResult = await buildAndPersistRepoGraph({
+          projectId: input.projectId,
+          repoName: (result as any).repo ?? "",
+          files: repoFiles,
+        });
+        graphifyRepoUsed = true;
+        graphifyNodeCount = graphResult.nodeCount;
+        graphifyEdgeCount = graphResult.edgeCount;
+      }
+    }
+
     const memoRepoAnswer = isMemoRepoQuery(input.query)
       ? [
           result.answer,
@@ -843,10 +907,22 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         ].join("\n")
       : result.answer;
 
+    const graphifySuffix = graphifyRepoUsed
+      ? [
+          "",
+          `## Code graph built`,
+          "",
+          `Built ${graphifyNodeCount} entities and ${graphifyEdgeCount} relations from the repo code graph.`,
+          "Use `query_graph` to ask questions about the code graph.",
+        ].join("\n")
+      : "";
+
+    const finalAnswer = memoRepoAnswer + graphifySuffix;
+
     const critic = evaluateFaithfulness({
       query: input.query,
-      answerMarkdown: memoRepoAnswer,
-      toolPreviews: [{ tool: "github_repo", preview: memoRepoAnswer, sources: result.sources ?? [] }],
+      answerMarkdown: finalAnswer,
+      toolPreviews: [{ tool: "github_repo", preview: finalAnswer, sources: result.sources ?? [] }],
       threshold: ROUTER_FAITHFULNESS_THRESHOLD,
     });
 
@@ -855,18 +931,22 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       route: decision,
       critic,
       ui: {
-        answerMarkdown: memoRepoAnswer,
+        answerMarkdown: finalAnswer,
         citations: result.sources ?? [],
         evidenceCoverage: {},
         faithfulness: critic,
       },
-      answer: memoRepoAnswer,
+      answer: finalAnswer,
       sources: result.sources ?? [],
       rawToolResult: result,
       debug: {
         memory,
         memoRepoUsed,
         memoRepoWritten,
+        graphifyRepoUsed,
+        repoGraphUsed: graphifyRepoUsed,
+        graphifyNodeCount,
+        graphifyEdgeCount,
       },
     };
   }
@@ -1121,6 +1201,70 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           },
           graphContextUsed: graphContext.used,
         } : {}),
+      },
+    };
+  }
+
+  if (decision.tool === "query_graph") {
+    const graphResult = await queryGraph({
+      projectId: input.projectId,
+      query: input.query,
+      depth: 2,
+    });
+
+    const entities = graphResult.entities ?? [];
+    const relations = graphResult.relations ?? [];
+
+    const answerMarkdown = [
+      "## Repo Code Graph",
+      "",
+      entities.length > 0
+        ? `Found ${entities.length} entities and ${relations.length} relations.`
+        : "No graph entities or relations found. Try graphifying a repo first with \"graphify this repo <url>\".",
+      "",
+      ...entities.slice(0, 15).map((e: any) => {
+        const rels = relations.filter(
+          (r: any) => r.sourceEntityId === e.id || r.targetEntityId === e.id,
+        );
+        const relSummary = rels.length > 0
+          ? ` — ${rels.length} relation(s)`
+          : "";
+        return `- **${e.name}** (${e.type})${relSummary}`;
+      }),
+      "",
+      "Use more specific queries to drill into the graph.",
+    ].filter(Boolean).join("\n");
+
+    const critic = evaluateFaithfulness({
+      query: input.query,
+      answerMarkdown,
+      threshold: ROUTER_FAITHFULNESS_THRESHOLD,
+    });
+
+    return {
+      status: "ok",
+      route: decision,
+      critic,
+      ui: {
+        answerMarkdown,
+        citations: [],
+        evidenceCoverage: {
+          hasEvidence: entities.length > 0,
+          claimCount: 0,
+          supportedClaimCount: 0,
+          weakClaimCount: 0,
+          unsupportedClaimCount: 0,
+          missing: [],
+        },
+        faithfulness: critic,
+      },
+      answer: answerMarkdown,
+      rawToolResult: graphResult,
+      debug: {
+        memory,
+        repoGraphUsed: true,
+        repoGraphEntityCount: entities.length,
+        repoGraphRelationCount: relations.length,
       },
     };
   }

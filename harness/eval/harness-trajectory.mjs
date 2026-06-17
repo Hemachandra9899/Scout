@@ -37,6 +37,18 @@ function extractPhase2Signals(response) {
       debug.graph?.used ??
       ui.graph?.used ??
       false,
+
+    graphifyRepoUsed:
+      debug.graphifyRepoUsed ??
+      debug.graphify?.used ??
+      ui.graphify?.used ??
+      false,
+
+    repoGraphUsed:
+      debug.repoGraphUsed ??
+      debug.repoGraph?.used ??
+      ui.repoGraph?.used ??
+      false,
   };
 }
 

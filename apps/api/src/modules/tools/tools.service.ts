@@ -307,34 +307,225 @@ export async function githubRepo(input: GithubRepoInput) {
   return { status:"ok", repo:repo.full_name, url:repo.html_url, defaultBranch:branch, fileCount:paths.length, selectedFileCount:selectedFiles.length, selectedFiles, stack, files, answer, sources:[{title:repo.full_name,url:repo.html_url}] };
 }
 
-export async function queryGraph(input: QueryGraphInput) {
+const SCOUT_GRAPH_TERMS: Record<string, string[]> = {
+  service: ["api", "web", "worker", "server", "runtime", "service"],
+  package: ["package", "module", "lib", "sdk", "utils"],
+  tool: ["tool", "cli", "command", "script", "agent"],
+  storage: ["db", "database", "queue", "cache", "store", "storage"],
+  dependency: ["dep", "dependency", "package", "npm", "pip"],
+  symbol: ["class", "function", "type", "interface", "export", "symbol"],
+  file: ["file", "module", "config", "schema", "route"],
+  directory: ["dir", "directory", "folder", "apps", "packages"],
+};
 
-  const entities = await prisma.entity.findMany({
-    where: {
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-      OR: [
-        { name: { contains: input.query, mode: "insensitive" } },
-        { description: { contains: input.query, mode: "insensitive" } },
-      ],
-    },
-    take: 10,
+function expandGraphQuery(query: string): string[] {
+  const q = query.toLowerCase();
+  const terms: string[] = [query];
+
+  for (const [, keywords] of Object.entries(SCOUT_GRAPH_TERMS)) {
+    const matched = keywords.some((kw) => q.includes(kw));
+    if (matched) {
+      terms.push(...keywords);
+    }
+  }
+
+  return [...new Set(terms)];
+}
+
+function renderGraphMarkdown(
+  query: string,
+  entities: Array<{ name: string; type: string; description?: string | null; confidence?: number | null }>,
+  relations: Array<{ sourceEntityId: string; targetEntityId: string; relationType: string; confidence?: number | null }>,
+  entityMap: Map<string, { name: string; type: string }>,
+): string {
+  if (entities.length === 0) {
+    return "No graph entities found. Try graphifying a repo first with \"graphify this repo <url>\".";
+  }
+
+  const lines: string[] = [
+    `## Repo Code Graph: "${query}"`,
+    "",
+    `Found **${entities.length}** entities and **${relations.length}** relations.`,
+    "",
+  ];
+
+  // Group entities by type
+  const byType = new Map<string, typeof entities>();
+  for (const e of entities) {
+    const list = byType.get(e.type) ?? [];
+    list.push(e);
+    byType.set(e.type, list);
+  }
+
+  for (const [type, items] of byType) {
+    lines.push(`### ${type.charAt(0).toUpperCase() + type.slice(1)}s (${items.length})`);
+    for (const item of items.slice(0, 8)) {
+      const desc = item.description ? ` — ${item.description.slice(0, 100)}` : "";
+      lines.push(`- **${item.name}**${desc}`);
+    }
+    if (items.length > 8) {
+      lines.push(`- *... and ${items.length - 8} more*`);
+    }
+    lines.push("");
+  }
+
+  // Show relations
+  if (relations.length > 0) {
+    lines.push(`### Relations (${relations.length})`);
+    for (const rel of relations.slice(0, 10)) {
+      const src = entityMap.get(rel.sourceEntityId);
+      const tgt = entityMap.get(rel.targetEntityId);
+      const srcName = src?.name ?? rel.sourceEntityId.slice(0, 8);
+      const tgtName = tgt?.name ?? rel.targetEntityId.slice(0, 8);
+      lines.push(`- \`${srcName}\` --${rel.relationType}--> \`${tgtName}\``);
+    }
+    if (relations.length > 10) {
+      lines.push(`- *... and ${relations.length - 10} more relations*`);
+    }
+    lines.push("");
+  }
+
+  lines.push("---");
+  lines.push("Use more specific queries to drill into the graph.");
+
+  return lines.join("\n");
+}
+
+export async function queryGraph(input: QueryGraphInput) {
+  const depth = input.depth ?? 1;
+  const expandedTerms = expandGraphQuery(input.query);
+
+  // Search entities with expanded terms
+  const entityPromises = expandedTerms.map((term) =>
+    prisma.entity.findMany({
+      where: {
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        OR: [
+          { name: { contains: term, mode: "insensitive" } },
+          { description: { contains: term, mode: "insensitive" } },
+        ],
+      },
+      take: 15,
+    }),
+  );
+
+  const entityResults = await Promise.all(entityPromises);
+  const seenIds = new Set<string>();
+  const allEntities: Array<{
+    id: string;
+    projectId: string;
+    name: string;
+    type: string;
+    description?: string | null;
+    confidence?: number | null;
+    metadata?: unknown;
+  }> = [];
+
+  for (const entities of entityResults) {
+    for (const e of entities) {
+      if (!seenIds.has(e.id)) {
+        seenIds.add(e.id);
+        allEntities.push(e);
+      }
+    }
+  }
+
+  const entityIds = allEntities.map((e) => e.id);
+
+  // Find relations at depth 1
+  let relations: Array<{
+    id: string;
+    projectId: string;
+    sourceEntityId: string;
+    targetEntityId: string;
+    relationType: string;
+    confidence?: number | null;
+    metadata?: unknown;
+  }> = [];
+
+  if (entityIds.length > 0) {
+    relations = await prisma.relation.findMany({
+      where: {
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        OR: [
+          { sourceEntityId: { in: entityIds } },
+          { targetEntityId: { in: entityIds } },
+        ],
+      },
+      take: 40,
+    });
+
+    // Depth 2: traverse to neighbors-of-neighbors
+    if (depth >= 2) {
+      const neighborIds = new Set<string>();
+      for (const rel of relations) {
+        if (!seenIds.has(rel.sourceEntityId)) neighborIds.add(rel.sourceEntityId);
+        if (!seenIds.has(rel.targetEntityId)) neighborIds.add(rel.targetEntityId);
+      }
+      const newIds = [...neighborIds].filter((id) => !seenIds.has(id));
+
+      if (newIds.length > 0) {
+        const neighborEntities = await prisma.entity.findMany({
+          where: {
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            id: { in: newIds },
+          },
+          take: 20,
+        });
+
+        for (const e of neighborEntities) {
+          if (!seenIds.has(e.id)) {
+            seenIds.add(e.id);
+            allEntities.push(e);
+          }
+        }
+
+        const depth2Relations = await prisma.relation.findMany({
+          where: {
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            OR: [
+              { sourceEntityId: { in: newIds } },
+              { targetEntityId: { in: newIds } },
+            ],
+          },
+          take: 40,
+        });
+
+        relations = [...relations, ...depth2Relations];
+      }
+    }
+  }
+
+  // Deduplicate relations
+  const relSeen = new Set<string>();
+  const uniqueRelations = relations.filter((r) => {
+    const key = `${r.sourceEntityId}:${r.targetEntityId}:${r.relationType}`;
+    if (relSeen.has(key)) return false;
+    relSeen.add(key);
+    return true;
   });
 
-  const entityIds = entities.map((e: { id: string }) => e.id);
-  const relations = entityIds.length
-    ? await prisma.relation.findMany({
-        where: {
-          ...(input.projectId ? { projectId: input.projectId } : {}),
-          OR: [
-            { sourceEntityId: { in: entityIds } },
-            { targetEntityId: { in: entityIds } },
-          ],
-        },
-        take: 20,
-      })
-    : [];
+  // Build entity map for rendering
+  const entityMap = new Map<string, { name: string; type: string }>();
+  for (const e of allEntities) {
+    entityMap.set(e.id, { name: e.name, type: e.type });
+  }
 
-  return { status: "ok", query: input.query, depth: input.depth ?? 1, entities, relations };
+  const markdown = renderGraphMarkdown(
+    input.query,
+    allEntities,
+    uniqueRelations.slice(0, 30),
+    entityMap,
+  );
+
+  return {
+    status: "ok",
+    query: input.query,
+    depth,
+    entities: allEntities,
+    relations: uniqueRelations,
+    markdown,
+  };
 }
 
 export async function convertFileWithMarkItDown(input: {

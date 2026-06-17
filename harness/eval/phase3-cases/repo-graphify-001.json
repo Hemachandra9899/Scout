@@ -1,0 +1,17 @@
+{
+  "id": "phase3-graphify-repo-001",
+  "intent": "graphify_repo",
+  "description": "User asks to graphify/build a code graph for a GitHub repo.",
+  "query": "graphify this repo https://github.com/Hemachandra9899/Scout and build a code graph",
+  "expectedTier": 2,
+  "expectedTool": "github_repo",
+  "mustMention": ["apps", "packages", "api"],
+  "mustNotClaim": ["not enough evidence"],
+  "expectedPhase2": {
+    "graphifyRepoUsed": true,
+    "repoGraphUsed": true
+  },
+  "minGroundedRatio": 0,
+  "minCompleteness": 0.5,
+  "maxLatencyMs": 180000
+}

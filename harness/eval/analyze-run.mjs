@@ -166,6 +166,8 @@ async function main() {
     blockedSourceAvoided: 0,
     recoveryAttempted: 0,
     graphContextUsed: 0,
+    graphifyRepoUsed: 0,
+    repoGraphUsed: 0,
   };
 
   for (const trajectory of trajectories) {
