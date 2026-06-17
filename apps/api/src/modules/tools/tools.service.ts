@@ -120,6 +120,7 @@ export async function webResearch(input: WebResearchInput) {
     const orchestrator = new ResearchOrchestrator();
     const raw = await orchestrator.run({
       projectId: input.projectId,
+      userId: input.userId,
       query: input.query,
       maxSources: input.maxResults,
       maxPagesPerSource: input.maxPagesPerSource,

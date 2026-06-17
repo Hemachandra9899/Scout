@@ -201,7 +201,9 @@ async function callScout(caseItem) {
   if (EVAL_TARGET === "router") {
     return postJson(`${API_BASE_URL}/router/answer`, {
       projectId: PROJECT_ID,
+      userId: caseItem.userId ?? "phase2-eval-user",
       query: caseItem.query,
+      setupMessages: caseItem.setupMessages ?? [],
       ...(caseItem.payload ?? {}),
     });
   }
@@ -447,6 +449,56 @@ async function judgeWithModel(caseItem, answer) {
   }
 }
 
+function extractPhase2SignalsFromResponse(response) {
+  const debug = response?.debug ?? {};
+  const memory = debug.memory ?? {};
+
+  return {
+    recallUsed: Boolean(
+      debug.recallUsed ??
+      memory.recallUsed ??
+      response?.ui?.memory?.recallUsed,
+    ),
+    sourceReuseUsed: Boolean(
+      debug.sourceReuseUsed ??
+      memory.sourceReuseUsed ??
+      response?.ui?.memory?.sourceReuseUsed,
+    ),
+    blockedSourceAvoided: Boolean(
+      debug.blockedSourceAvoided ??
+      memory.blockedSourceAvoided ??
+      response?.ui?.memory?.blockedSourceAvoided,
+    ),
+    recoveryAttempted: Boolean(
+      debug.recoveryAttempted ??
+      response?.researchTrace?.some?.((stage) =>
+        String(stage.name ?? "").toLowerCase().includes("retry"),
+      ),
+    ),
+    graphContextUsed: Boolean(
+      debug.graphContextUsed ??
+      debug.graph?.used ??
+      response?.ui?.graph?.used,
+    ),
+  };
+}
+
+function checkExpectedPhase2(caseItem, response) {
+  const expected = caseItem.expectedPhase2 ?? {};
+  const signals = extractPhase2SignalsFromResponse(response);
+
+  const failures = Object.entries(expected)
+    .filter(([, expectedValue]) => typeof expectedValue === "boolean")
+    .filter(([key, expectedValue]) => signals[key] !== expectedValue)
+    .map(([key, expectedValue]) => `${key} expected ${expectedValue}, got ${signals[key]}`);
+
+  return {
+    signals,
+    passed: failures.length === 0,
+    failures,
+  };
+}
+
 function evaluateCase(caseItem, response, answer, durationMs, judge) {
   const coverage = extractCoverage(response);
   const { supported, claimCount, groundedRatio } = computeGroundedRatio(coverage);
@@ -502,6 +554,11 @@ function evaluateCase(caseItem, response, answer, durationMs, judge) {
   if (!correctnessPassed) failures.push(`correctness ${judge.correctness.toFixed(2)} too low`);
   if (!completenessPassed) failures.push(`completeness ${judge.completeness.toFixed(2)} too low`);
 
+  const phase2 = checkExpectedPhase2(caseItem, response);
+  if (!phase2.passed) {
+    failures.push(`phase2 signals: ${phase2.failures.join(", ")}`);
+  }
+
   return {
     id: caseItem.id,
     intent: caseItem.intent ?? "",
@@ -531,6 +588,8 @@ function evaluateCase(caseItem, response, answer, durationMs, judge) {
     mustNotClaimViolations: forbidden.violations,
     latencyPassed,
     durationMs,
+    phase2Signals: phase2.signals,
+    phase2Passed: phase2.passed,
     passed: failures.length === 0,
     failures: failures.join("; "),
     answerPreview: answer.slice(0, 1000),

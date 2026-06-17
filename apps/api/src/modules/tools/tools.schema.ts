@@ -9,6 +9,7 @@ export const crawlUrlSchema = z.object({
 
 export const webResearchSchema = z.object({
   projectId: z.string().uuid(),
+  userId: z.string().optional(),
   query: z.string().min(1),
   maxResults: z.number().int().min(1).max(10).optional(),
   maxPagesPerSource: z.number().int().min(1).max(10).optional(),

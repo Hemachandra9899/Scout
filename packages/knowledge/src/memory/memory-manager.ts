@@ -112,6 +112,35 @@ function scoreMemory(query: string, memory: ScoutMemory): number {
   return memory.confidence * 50 + entityScore + keywordScore * 3 + recencyScore + kindBoost;
 }
 
+function extractDomains(text: string): string[] {
+  const domains = text.match(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi) ?? [];
+  return [...new Set(domains.map((d) => d.toLowerCase()))];
+}
+
+function looksLikePreference(text: string): boolean {
+  const q = text.toLowerCase();
+  return (
+    q.includes("i prefer") ||
+    q.includes("my preference") ||
+    q.includes("for future") ||
+    q.includes("please always") ||
+    q.includes("i like") ||
+    q.includes("i want")
+  );
+}
+
+function looksLikeBlockedSource(text: string): boolean {
+  const q = text.toLowerCase();
+  return (
+    q.includes("avoid") ||
+    q.includes("block") ||
+    q.includes("untrusted") ||
+    q.includes("unreliable") ||
+    q.includes("do not use") ||
+    q.includes("don't use")
+  );
+}
+
 function tierConfidence(item: EvidenceItem): number {
   if (item.tier === "official_docs" || item.tier === "trusted_docs") return 0.9;
   if (item.tier === "reference_examples") return 0.72;
@@ -163,6 +192,56 @@ export class MemoryManager {
       .map(toScoutMemory)
       .sort((a, b) => scoreMemory(input.query, b) - scoreMemory(input.query, a))
       .slice(0, limit);
+  }
+
+  buildExplicitMemoriesFromUserMessage(input: {
+    projectId: string;
+    userId?: string;
+    message: string;
+  }): ScoutMemoryDraft[] {
+    const text = input.message.trim();
+    if (!text) return [];
+
+    const domains = extractDomains(text);
+    const drafts: ScoutMemoryDraft[] = [];
+
+    if (looksLikePreference(text) && !looksLikeBlockedSource(text)) {
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "user",
+        kind: "preference",
+        text,
+        entities: ["preference"],
+        confidence: 0.95,
+        metadata: {
+          source: "explicit_user_message",
+        },
+      });
+    }
+
+    if (looksLikeBlockedSource(text) && domains.length > 0) {
+      for (const domain of domains) {
+        drafts.push({
+          projectId: input.projectId,
+          userId: input.userId,
+          scope: "source",
+          kind: "source_failure",
+          text: `User marked ${domain} as blocked or unreliable: ${text}`,
+          entities: [domain, "blocked_source"],
+          sourceUrls: [`https://${domain}`],
+          confidence: 0.98,
+          metadata: {
+            source: "explicit_user_message",
+            domain,
+            domain_blocked: true,
+            user_blocked: true,
+          },
+        });
+      }
+    }
+
+    return dedupeDrafts(drafts);
   }
 
   buildSourceMemoriesFromEvidencePack(input: {

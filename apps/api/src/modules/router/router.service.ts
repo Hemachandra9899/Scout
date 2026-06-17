@@ -4,6 +4,8 @@ import {
   githubRepo,
 } from "../tools/tools.service.js";
 import { evaluateFaithfulness, type FaithfulnessCriticResult } from "./faithfulness-critic.js";
+import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
+import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
 
 export type RouterTier = 1 | 2 | 3;
 
@@ -18,6 +20,10 @@ export type RouterAnswerInput = {
   projectId: string;
   userId?: string;
   query: string;
+  setupMessages?: Array<{
+    role?: string;
+    content?: string;
+  }>;
 };
 
 const MODEL_SERVICE_URL =
@@ -50,6 +56,94 @@ const ROUTER_CODING_TIMEOUT_MS = Number(
 const ROUTER_CODING_MAX_TOKENS = Number(
   process.env.ROUTER_CODING_MAX_TOKENS || 900,
 );
+
+const memoryManager = new MemoryManager();
+
+async function writeSetupMemories(input: RouterAnswerInput): Promise<number> {
+  const messages = input.setupMessages ?? [];
+  const drafts = messages.flatMap((message) =>
+    memoryManager.buildExplicitMemoriesFromUserMessage({
+      projectId: input.projectId,
+      userId: input.userId,
+      message: String(message.content ?? ""),
+    }),
+  );
+
+  if (drafts.length === 0) return 0;
+  return memoryManager.addMany(drafts);
+}
+
+async function recallMemories(input: RouterAnswerInput): Promise<ScoutMemory[]> {
+  const [general, blockList] = await Promise.all([
+    memoryManager.search({
+      projectId: input.projectId,
+      userId: input.userId,
+      query: input.query,
+      limit: 6,
+      kinds: [
+        "preference",
+        "fact",
+        "durable_fact",
+        "source_quality",
+        "source_failure",
+      ],
+    }),
+    memoryManager.search({
+      projectId: input.projectId,
+      userId: input.userId,
+      query: "blocked untrusted avoid unreliable source",
+      limit: 4,
+      kinds: ["source_failure"],
+    }),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: ScoutMemory[] = [];
+  for (const memory of [...general, ...blockList]) {
+    if (seen.has(memory.id)) continue;
+    seen.add(memory.id);
+    merged.push(memory);
+  }
+
+  return merged.slice(0, 8);
+}
+
+function buildMemoryContext(memories: ScoutMemory[]): string {
+  if (memories.length === 0) return "";
+
+  const lines = memories.slice(0, 6).map((memory, index) => {
+    const scope = memory.scope;
+    const kind = memory.kind;
+    return `[M${index + 1}] ${kind}/${scope}: ${memory.text}`;
+  });
+
+  return [
+    "RELEVANT MEMORY:",
+    ...lines,
+    "",
+    "Use user preferences only for style or constraints.",
+    "Use source memories only for source trust/ranking.",
+    "Do not treat memory as factual evidence unless it is a cited durable fact.",
+  ].join("\n");
+}
+
+function memoryDebug(memories: ScoutMemory[], setupWritten: number) {
+  const recalledKinds = [...new Set(memories.map((m) => m.kind))];
+  const blockedSourceAvoided = memories.some(
+    (m) =>
+      m.kind === "source_failure" &&
+      ((m.metadata as any)?.domain_blocked || (m.metadata as any)?.user_blocked),
+  );
+
+  return {
+    setupWritten,
+    recallUsed: memories.length > 0,
+    recalledCount: memories.length,
+    recalledKinds,
+    blockedSourceAvoided,
+    sourceReuseUsed: memories.some((m) => m.kind === "source_quality"),
+  };
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -125,6 +219,7 @@ function isClearlyInsufficientEvidenceQuery(query: string): boolean {
 function deterministicNoEvidenceResponse(
   input: RouterAnswerInput,
   decision: RouterDecision,
+  memory: ReturnType<typeof memoryDebug>,
   reason = "The query asks for private, unreleased, future, or unavailable information.",
 ) {
   const answerMarkdown = [
@@ -170,6 +265,7 @@ function deterministicNoEvidenceResponse(
       noEvidenceTrap: true,
       query: input.query,
       reason,
+      memory,
     },
   };
 }
@@ -583,6 +679,7 @@ function partialResearchTimeoutResponse(
   decision: RouterDecision,
   error: unknown,
   query: string,
+  memory: ReturnType<typeof memoryDebug>,
 ) {
   const reason = error instanceof Error ? error.message : String(error);
   const answerMarkdown = [
@@ -618,16 +715,23 @@ function partialResearchTimeoutResponse(
     },
     answer: answerMarkdown,
     error: reason,
+    debug: { memory },
   };
 }
 
 export async function answerWithRouter(input: RouterAnswerInput) {
+  const setupWritten = await writeSetupMemories(input);
+  const recalledMemories = await recallMemories(input);
+  const memoryContext = buildMemoryContext(recalledMemories);
+  const memory = memoryDebug(recalledMemories, setupWritten);
+
   const decision = routeScoutQuery(input.query);
 
   if (isClearlyInsufficientEvidenceQuery(input.query)) {
     return deterministicNoEvidenceResponse(
       input,
       decision,
+      memory,
       "The query asks for private, unreleased, future, or non-uploaded information.",
     );
   }
@@ -663,6 +767,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       answer: result.answer,
       sources: result.sources ?? [],
       rawToolResult: result,
+      debug: { memory },
     };
   }
 
@@ -671,6 +776,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       let result = await withTimeout(
         webResearch({
           projectId: input.projectId,
+          userId: input.userId,
           query: input.query,
           maxResults: ROUTER_RESEARCH_MAX_RESULTS,
           maxPagesPerSource: ROUTER_RESEARCH_MAX_PAGES_PER_SOURCE,
@@ -703,6 +809,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         result = await withTimeout(
           webResearch({
             projectId: input.projectId,
+            userId: input.userId,
             query: focusedQuery,
             maxResults: ROUTER_RESEARCH_MAX_RESULTS,
             maxPagesPerSource: ROUTER_RESEARCH_MAX_PAGES_PER_SOURCE,
@@ -743,6 +850,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
             evidenceCoverage,
             faithfulness: critic,
           },
+          debug: { ...(result as any).debug, memory },
         };
       }
 
@@ -758,9 +866,10 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           evidenceCoverage,
           faithfulness: critic,
         },
+        debug: { ...(result as any).debug, memory },
       };
     } catch (error) {
-      return partialResearchTimeoutResponse(decision, error, input.query);
+      return partialResearchTimeoutResponse(decision, error, input.query, memory);
     }
   }
 
@@ -789,6 +898,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         ui: { answerMarkdown, citations: [], evidenceCoverage: {}, faithfulness: critic },
         answer: answerMarkdown,
         rawToolResult: result,
+        debug: { memory },
       };
     }
 
@@ -803,13 +913,15 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       "If the results do NOT contain the information needed to answer the question, say you do not have enough evidence.",
       "Do not make up facts. Do not guess.",
       "",
+      memoryContext,
+      "",
       `QUESTION: ${input.query}`,
       "",
       "KNOWLEDGE BASE RESULTS:",
       context,
       "",
       "ANSWER:",
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     let answerMarkdown: string;
     try {
@@ -863,17 +975,23 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       },
       answer: answerMarkdown,
       rawToolResult: result,
+      debug: { memory },
     };
   }
 
   if (decision.tool === "direct_model") {
     if (isReverseLinkedListQuestion(input.query)) {
-      return answerReverseLinkedListQuestion();
+      const llResult = answerReverseLinkedListQuestion();
+      return {
+        ...llResult,
+        debug: { ...(llResult as any).debug, memory },
+      };
     }
 
     let answerMarkdown: string;
+    const codingQuery = [memoryContext, input.query].filter(Boolean).join("\n\n");
     try {
-      answerMarkdown = await callModelService("coding", input.query);
+      answerMarkdown = await callModelService("coding", codingQuery);
     } catch {
       answerMarkdown = `I encountered a temporary issue processing your coding request. Please try again.\n\nQuery: ${input.query}`;
     }
@@ -895,13 +1013,14 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         faithfulness: critic,
       },
       answer: answerMarkdown,
+      debug: { memory },
     };
   }
 
   if (decision.tool === "sandbox") {
     const simpleResult = answerSimpleListComputation(input.query);
     if (simpleResult) {
-      return simpleResult;
+      return { ...simpleResult, debug: { ...(simpleResult as any).debug, memory } };
     }
 
     const result = await callRlmRuntime(input);
@@ -926,6 +1045,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         evidenceCoverage,
         faithfulness: critic,
       },
+      debug: { ...(result as any).debug, memory },
     };
   }
 

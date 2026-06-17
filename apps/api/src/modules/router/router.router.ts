@@ -14,6 +14,7 @@ export async function routerRouter(app: FastifyInstance) {
       projectId: input.projectId ?? "default-project",
       userId: input.userId,
       query: input.query,
+      setupMessages: input.setupMessages,
     });
   });
 }
