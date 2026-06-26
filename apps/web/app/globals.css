@@ -1699,3 +1699,29 @@ pre {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.debugActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.smallButton {
+  display: inline-block;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.smallButton:hover {
+  background: var(--lime);
+  color: #000;
+  border-color: var(--lime);
+}

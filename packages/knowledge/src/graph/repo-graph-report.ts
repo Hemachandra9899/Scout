@@ -20,6 +20,8 @@ type Relation = {
 
 export type RepoGraphReportOutput = {
   status: "ok";
+  reportId?: string;
+  downloadFilename: string;
   markdown: string;
   entities: Entity[];
   relations: Relation[];
@@ -299,8 +301,10 @@ export async function generateRepoGraphReport(input: {
 
   const markdown = lines.join("\n");
 
+  let reportId: string | undefined;
+
   if (input.persist) {
-    await prisma.report.create({
+    const report = await prisma.report.create({
       data: {
         projectId: input.projectId,
         title: `Repo Graph Report: ${repoName}`,
@@ -310,13 +314,20 @@ export async function generateRepoGraphReport(input: {
           repoName,
           entityCount: entities.length,
           relationCount: relations.length,
+          highDegreeCount: highDegreeNodes.length,
+          suggestedQuestions,
+          relationTypeCounts,
         },
       },
     });
+
+    reportId = report.id;
   }
 
   return {
     status: "ok",
+    reportId,
+    downloadFilename: "GRAPH_REPORT.md",
     markdown,
     entities,
     relations,

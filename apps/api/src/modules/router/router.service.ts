@@ -1276,6 +1276,15 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       threshold: ROUTER_FAITHFULNESS_THRESHOLD,
     });
 
+    const reportDownloads = report.reportId
+      ? {
+          markdown: `/graph-reports/${report.reportId}/download.md`,
+          json: `/graph-reports/${report.reportId}`,
+          latestMarkdown: `/graph-reports/latest?projectId=${input.projectId}&format=md`,
+          latestJson: `/graph-reports/latest?projectId=${input.projectId}`,
+        }
+      : {};
+
     return {
       status: "ok",
       route: decision,
@@ -1288,8 +1297,14 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         graph: {
           used: true,
           reportUsed: true,
+          reportId: report.reportId,
+          downloadFilename: report.downloadFilename,
+          downloads: reportDownloads,
           entities: report.entities,
           relations: report.relations,
+          highDegreeNodes: report.highDegreeNodes,
+          relationTypeCounts: report.relationTypeCounts,
+          suggestedQuestions: report.suggestedQuestions,
         },
       },
       answer: report.markdown,
@@ -1298,12 +1313,15 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         memory,
         graphContextUsed: true,
         graphReportUsed: true,
+        graphReportId: report.reportId,
+        graphReportDownloads: reportDownloads,
         graphReportNodeCount: report.debug.graphReportNodeCount,
         graphReportRelationCount: report.debug.graphReportRelationCount,
         graphReportHighDegreeCount: report.debug.graphReportHighDegreeCount,
         graph: {
           used: true,
           reportUsed: true,
+          reportId: report.reportId,
           entityCount: report.debug.graphReportNodeCount,
           relationCount: report.debug.graphReportRelationCount,
         },
