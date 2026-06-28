@@ -174,6 +174,8 @@ async function main() {
   };
   
   let aggregatedProgressStages = new Set();
+  let aggregatedRoutingIntents = new Set();
+  let aggregatedRouteSources = new Set();
 
   for (const trajectory of trajectories) {
     for (const key of Object.keys(phase2Counts)) {
@@ -184,9 +186,15 @@ async function main() {
         aggregatedProgressStages.add(stage);
       }
     }
+    if (trajectory?.phase2?.routingIntent) {
+      aggregatedRoutingIntents.add(trajectory.phase2.routingIntent);
+    }
+    if (trajectory?.phase2?.routeSource) {
+      aggregatedRouteSources.add(trajectory.phase2.routeSource);
+    }
   }
 
-  if (Object.values(phase2Counts).some((v) => v > 0) || aggregatedProgressStages.size > 0) {
+  if (Object.values(phase2Counts).some((v) => v > 0) || aggregatedProgressStages.size > 0 || aggregatedRoutingIntents.size > 0) {
     lines.push("## Phase 2 signals");
     lines.push("");
     for (const [key, count] of Object.entries(phase2Counts)) {
@@ -194,6 +202,12 @@ async function main() {
     }
     if (aggregatedProgressStages.size > 0) {
       lines.push(`- progressStages: ${[...aggregatedProgressStages].join(", ")}`);
+    }
+    if (aggregatedRoutingIntents.size > 0) {
+      lines.push(`- routingIntents: ${[...aggregatedRoutingIntents].join(", ")}`);
+    }
+    if (aggregatedRouteSources.size > 0) {
+      lines.push(`- routeSources: ${[...aggregatedRouteSources].join(", ")}`);
     }
     lines.push("");
   }

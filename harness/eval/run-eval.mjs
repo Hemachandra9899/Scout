@@ -547,6 +547,12 @@ function extractPhase2SignalsFromResponse(response) {
       response?.rawToolResult?.debug?.progress?.stages ??
       []
     ),
+    routingIntent: debug.routing?.intent,
+    routingConfidence: Number(debug.routing?.confidence ?? 0),
+    routeSignals: debug.routing?.signals ?? [],
+    routeReason: debug.routing?.reason,
+    routeSource: debug.routing?.source,
+    analysisAngles: debug.routing?.analysisAngles ?? [],
   };
 }
 

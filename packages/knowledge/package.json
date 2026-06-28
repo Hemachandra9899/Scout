@@ -62,7 +62,9 @@
     "./graph/repo-graph-query": "./src/graph/repo-graph-query.js",
     "./graph/repo-graph-query.js": "./src/graph/repo-graph-query.js",
     "./graph/repo-graph-report": "./src/graph/repo-graph-report.js",
-    "./graph/repo-graph-report.js": "./src/graph/repo-graph-report.js"
+    "./graph/repo-graph-report.js": "./src/graph/repo-graph-report.js",
+    "./router/intent-classifier": "./src/router/intent-classifier.js",
+    "./router/intent-classifier.js": "./src/router/intent-classifier.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",

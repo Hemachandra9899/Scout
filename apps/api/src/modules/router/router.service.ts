@@ -9,6 +9,7 @@ import {
   buildProjectGraphContext,
   shouldUseProjectGraphContext,
 } from "@rlm-forge/knowledge/graph/project-context-graph.js";
+import { classifyRouteIntent } from "@rlm-forge/knowledge/router/intent-classifier.js";
 import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
 import { buildAndPersistRepoGraph } from "@rlm-forge/knowledge";
@@ -511,7 +512,6 @@ function deterministicNoEvidenceResponse(
         hasEvidence: false,
         claimCount: 0,
         supportedClaimCount: 0,
-        weakClaimCount: 0,
         unsupportedClaimCount: 0,
         missing: [reason],
       },
@@ -522,6 +522,7 @@ function deterministicNoEvidenceResponse(
       query: input.query,
       reason,
       memory,
+      routing: routeDebug(input.query),
       ...(memoryTiming ? { memoryTiming } : {}),
     },
   };
@@ -589,205 +590,29 @@ function looksLikeUploadedDocQuery(query: string): boolean {
 }
 
 export function routeScoutQuery(query: string): RouterDecision {
-  const q = query.toLowerCase();
-
-  if (isClearlyInsufficientEvidenceQuery(query)) {
-    return {
-      tier: 1,
-      route: "direct_tool",
-      tool: "search_kb",
-      reason:
-        "Query asks for private/unreleased information; verify KB first and return insufficient evidence if unavailable.",
-    };
-  }
-
-  if (isMemoRepoQuery(query)) {
-    return {
-      tier: 2,
-      route: "direct_tool",
-      tool: "github_repo",
-      reason: "Memo repo request detected; analyze GitHub repo and persist repo memories.",
-    };
-  }
-
-  if (isUpdateRepoGraphQuery(query)) {
-    return {
-      tier: 2,
-      route: "direct_tool",
-      tool: "github_repo",
-      reason: "Repo graph update request detected; analyze GitHub repo and incrementally update graph.",
-    };
-  }
-
-  if (isGraphifyRepoQuery(query)) {
-    return {
-      tier: 2,
-      route: "direct_tool",
-      tool: "github_repo",
-      reason: "Graphify repo request detected; analyze GitHub repo and build code graph.",
-    };
-  }
-
-  if (hasGithubRepoUrl(query)) {
-    return {
-      tier: 2,
-      route: "direct_tool",
-      tool: "github_repo",
-      reason: "GitHub repository URL detected; use github_repo instead of sandbox codegen.",
-    };
-  }
-
-  if (isRepoGraphReportQuery(query)) {
-    return {
-      tier: 3,
-      route: "direct_tool",
-      tool: "query_graph",
-      reason: "Repo graph report request detected; generate graph report from persisted graph.",
-    };
-  }
-
-  if (isRepoGraphQuestion(query)) {
-    return {
-      tier: 3,
-      route: "direct_tool",
-      tool: "query_graph",
-      reason: "Repo graph query detected; query persisted Entity/Relation graph.",
-    };
-  }
-
-  if (shouldUseProjectGraphContext(query)) {
-    return {
-      tier: 1,
-      route: "direct_tool",
-      tool: "search_kb",
-      reason: "Scout architecture relationship query; use KB plus project graph context.",
-    };
-  }
-
-  if (looksLikeUploadedDocQuery(query)) {
-    return {
-      tier: 1,
-      route: "direct_tool",
-      tool: "search_kb",
-      reason:
-        "Uploaded/local document query; use search_kb even when API terms appear.",
-    };
-  }
-
-  if (looksLikePureCodeQuery(query)) {
-    return {
-      tier: 1,
-      route: "direct_model",
-      tool: "direct_model",
-      reason:
-        "Pure coding/algorithm question with no web-research signal; answer with the coding model.",
-    };
-  }
-
-  if (
-    includesAny(q, [
-      "latest",
-      "news",
-      "current",
-      "recent",
-      "today",
-      "this week",
-      "api",
-      "docs",
-      "documentation",
-      "auth",
-      "authenticate",
-      "authentication",
-      "rate limit",
-      "quota",
-      "compare",
-      "comparison",
-      "versus",
-      " vs ",
-    ])
-  ) {
-    return {
-      tier: 2,
-      route: "research_orchestrator",
-      tool: "web_research",
-      reason: "Research/current/API/comparison query; use ResearchOrchestrator as default.",
-    };
-  }
-
-  if (
-    includesAny(q, [
-      "uploaded",
-      "document",
-      "pdf",
-      "readme",
-      "knowledge base",
-      "kb",
-      "project knowledge",
-      "from the file",
-      "from uploaded",
-    ])
-  ) {
-    return {
-      tier: 1,
-      route: "direct_tool",
-      tool: "search_kb",
-      reason: "Document/KB lookup; use search_kb directly.",
-    };
-  }
-
-  if (
-    includesAny(q, [
-      "sort",
-      "remove duplicates",
-      "mean",
-      "median",
-      "group by",
-      "aggregate",
-      "chart",
-      "parse",
-      "calculate",
-      "compute",
-      "last 100 commits",
-      "frequency",
-    ])
-  ) {
-    return {
-      tier: 3,
-      route: "sandbox",
-      tool: "sandbox",
-      reason: "Query needs explicit computation or data transformation; use sandbox.",
-    };
-  }
-
-  if (
-    includesAny(q, [
-      "code",
-      "function",
-      "leetcode",
-      "linked list",
-      "algorithm",
-      "time complexity",
-      "space complexity",
-      "implement",
-      "debug",
-      "typescript",
-      "javascript",
-      "python",
-    ])
-  ) {
-    return {
-      tier: 1,
-      route: "direct_model",
-      tool: "direct_model",
-      reason: "Pure coding question; use direct coding model without web research.",
-    };
-  }
+  const intent = classifyRouteIntent(query);
 
   return {
-    tier: 2,
-    route: "research_orchestrator",
-    tool: "web_research",
-    reason: "Defaulting unknown information request to evidence-first ResearchOrchestrator.",
+    tier: intent.tier,
+    route: intent.route,
+    tool: intent.tool,
+    reason: intent.reason,
+  };
+}
+
+function routeDebug(query: string) {
+  const intent = classifyRouteIntent(query);
+
+  return {
+    tool: intent.tool,
+    tier: intent.tier,
+    intent: intent.intent,
+    confidence: intent.confidence,
+    normalizedQuery: intent.normalizedQuery,
+    signals: intent.signals,
+    analysisAngles: intent.analysisAngles,
+    reason: intent.reason,
+    source: intent.source,
   };
 }
 
@@ -886,7 +711,7 @@ function isReverseLinkedListQuestion(query: string): boolean {
   return q.includes("reverse") && q.includes("linked list");
 }
 
-function answerReverseLinkedListQuestion() {
+function answerReverseLinkedListQuestion(query: string) {
   const answerMarkdown = [
     "Use three pointers: `prev`, `current`, and `next`.",
     "",
@@ -950,6 +775,7 @@ function answerReverseLinkedListQuestion() {
     debug: {
       fastCodingPath: true,
       canonical: "reverse-linked-list",
+      routing: routeDebug(query),
     },
   };
 }
@@ -1108,7 +934,7 @@ function partialResearchTimeoutResponse(
     },
     answer: answerMarkdown,
     error: reason,
-    debug: { memory, ...(memoryTiming ? { memoryTiming } : {}) },
+    debug: { memory, ...(memoryTiming ? { memoryTiming } : {}), routing: routeDebug(query) },
   };
 }
 
@@ -1196,7 +1022,24 @@ async function getMemoryForRoute(input: {
 }
 
 export async function answerWithRouter(input: RouterAnswerInput) {
-  const decision = routeScoutQuery(input.query);
+  const intent = classifyRouteIntent(input.query);
+  const routingDebug = {
+    tool: intent.tool,
+    tier: intent.tier,
+    intent: intent.intent,
+    confidence: intent.confidence,
+    normalizedQuery: intent.normalizedQuery,
+    signals: intent.signals,
+    analysisAngles: intent.analysisAngles,
+    reason: intent.reason,
+    source: intent.source,
+  };
+  const decision: RouterDecision = {
+    tier: intent.tier,
+    route: intent.route,
+    tool: intent.tool,
+    reason: intent.reason,
+  };
   const hasSetupMessages = Boolean(input.setupMessages?.length);
   const needsMemory = routeNeedsMemory({ query: input.query, decision, hasSetupMessages });
   const memoryPromise = getMemoryForRoute({
@@ -1329,6 +1172,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         graphUpdateMode: repoGraphWritten?.graphUpdateMode,
         changedFileCount: repoGraphWritten?.changedFileCount ?? 0,
         skippedFileCount: repoGraphWritten?.skippedFileCount ?? 0,
+        routing: routingDebug,
       },
     };
   }
@@ -1491,6 +1335,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
                   },
                 }
               : {}),
+            routing: routingDebug,
             memory: (await memoryPromise).memory,
             memoryTiming: (await memoryPromise).timing,
           },
@@ -1526,6 +1371,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
                 },
               }
             : {}),
+          routing: routingDebug,
           memory: (await memoryPromise).memory,
           memoryTiming: (await memoryPromise).timing,
         },
@@ -1584,6 +1430,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
             graph: { used: true, reason: graphContext.reason, nodeCount: 0, edgeCount: 0 },
             graphContextUsed: true,
           } : {}),
+          routing: routingDebug,
         },
       };
     }
@@ -1701,6 +1548,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           },
           graphContextUsed: graphContext.used,
         } : {}),
+        routing: routingDebug,
       },
     };
   }
@@ -1767,6 +1615,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           entityCount: report.debug.graphReportNodeCount,
           relationCount: report.debug.graphReportRelationCount,
         },
+        routing: routingDebug,
       },
     };
   }
@@ -1828,16 +1677,17 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           relationCount: grpDebug.graphRelationCount ?? 0,
           traversalDepth: grpDebug.graphTraversalDepth ?? 0,
         },
+        routing: routingDebug,
       },
     };
   }
 
   if (decision.tool === "direct_model") {
     if (isReverseLinkedListQuestion(input.query)) {
-      const llResult = answerReverseLinkedListQuestion();
+      const llResult = answerReverseLinkedListQuestion(input.query);
       return {
         ...llResult,
-        debug: { ...(llResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
+        debug: { ...(llResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, routing: routingDebug },
       };
     }
 
@@ -1867,14 +1717,14 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         faithfulness: critic,
       },
       answer: answerMarkdown,
-      debug: { memory: memResult, memoryTiming: memTiming },
+      debug: { memory: memResult, memoryTiming: memTiming, routing: routingDebug },
     };
   }
 
   if (decision.tool === "sandbox") {
     const simpleResult = answerSimpleListComputation(input.query);
     if (simpleResult) {
-      return { ...simpleResult, debug: { ...(simpleResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing } };
+      return { ...simpleResult, debug: { ...(simpleResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, routing: routingDebug } };
     }
 
     const result = await callRlmRuntime(input);
@@ -1899,7 +1749,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         evidenceCoverage,
         faithfulness: critic,
       },
-      debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
+      debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, routing: routingDebug },
     };
   }
 
