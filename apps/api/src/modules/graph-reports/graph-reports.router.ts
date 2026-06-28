@@ -32,6 +32,8 @@ export async function graphReportsRouter(app: FastifyInstance) {
       download: {
         markdown: `/graph-reports/${report.id}/download.md`,
         json: `/graph-reports/${report.id}`,
+        latestMarkdown: `/graph-reports/latest?projectId=${query.projectId}&format=md`,
+        latestJson: `/graph-reports/latest?projectId=${query.projectId}`,
       },
     };
   });
