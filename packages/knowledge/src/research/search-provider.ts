@@ -8,6 +8,10 @@ import {
 import type { SearchProviderName } from "./search-providers/types.js";
 import { normalizeUrl } from "./search-providers/utils.js";
 import { getRouteBudgets } from "./search-provider-config.js";
+import {
+  ProviderError,
+  type ProviderErrorKind,
+} from "./search-providers/provider-error.js";
 
 export type SearchResourceCandidateOptions = {
   freshnessRequired?: boolean;
@@ -19,6 +23,23 @@ type ProviderRunTrace = {
   status: "fulfilled" | "rejected" | "skipped";
   resultCount: number;
   budget: number;
+  errorKind?: ProviderErrorKind;
+  error?: string;
+};
+
+export type ProviderErrorTrace = {
+  provider: SearchProviderName;
+  kind: ProviderErrorKind;
+  message: string;
+};
+
+/** Run-level provider reliability signals, surfaced for debug/UI. */
+export type ProviderUsageSummary = {
+  selectedProviders: SearchProviderName[];
+  skippedProviders: SearchProviderName[];
+  exhaustedProviders: SearchProviderName[];
+  providerErrors: ProviderErrorTrace[];
+  providerFallbackUsed: boolean;
 };
 
 function mergeProviderResults(results: ResourceCandidate[]): ResourceCandidate[] {
@@ -114,16 +135,29 @@ export async function searchResourceCandidates(
       results.push(...item.value);
       runs.push({ provider: providerName, status: "fulfilled", budget: budget.maxResults, resultCount: item.value.length });
     } else {
-      runs.push({ provider: providerName, status: "rejected", budget: budget.maxResults, resultCount: 0 });
+      const reason = item.reason;
+      const kind: ProviderErrorKind =
+        reason instanceof ProviderError ? reason.kind : "error";
+      runs.push({
+        provider: providerName,
+        status: "rejected",
+        budget: budget.maxResults,
+        resultCount: 0,
+        errorKind: kind,
+        error: reason instanceof Error ? reason.message : String(reason),
+      });
     }
   }
 
   const merged = mergeProviderResults(results).slice(0, limit * 3);
 
+  const usage = summarizeRuns(runs);
+
   const searchTrace = {
     routeKind: route.routeKind,
     routeReason: route.routeReason,
-    selectedProviders: route.selectedProviders,
+    routeProviders: route.selectedProviders,
+    ...usage,
     freshnessRequired,
     budgets: routeBudgets,
     runs,
@@ -136,4 +170,76 @@ export async function searchResourceCandidates(
       searchTrace,
     },
   }));
+}
+
+function summarizeRuns(runs: ProviderRunTrace[]): ProviderUsageSummary {
+  const selectedProviders = runs
+    .filter((r) => r.status !== "skipped")
+    .map((r) => r.provider);
+  const skippedProviders = runs
+    .filter((r) => r.status === "skipped")
+    .map((r) => r.provider);
+  const rejected = runs.filter((r) => r.status === "rejected");
+
+  const exhaustedProviders = rejected
+    .filter((r) => r.errorKind === "exhausted")
+    .map((r) => r.provider);
+  const providerErrors: ProviderErrorTrace[] = rejected.map((r) => ({
+    provider: r.provider,
+    kind: r.errorKind ?? "error",
+    message: r.error ?? "",
+  }));
+
+  const gotResults = runs.some(
+    (r) => r.status === "fulfilled" && r.resultCount > 0,
+  );
+  const unavailable = skippedProviders.length + rejected.length;
+
+  return {
+    selectedProviders,
+    skippedProviders,
+    exhaustedProviders,
+    providerErrors,
+    providerFallbackUsed: unavailable > 0 && gotResults,
+  };
+}
+
+/**
+ * Merge the per-batch provider signals carried in candidate `searchTrace` metadata
+ * into a single run-level summary the router/orchestrator can expose as `debug.providers`.
+ */
+export function summarizeProviderUsage(
+  candidates: Array<{ metadata?: unknown }>,
+): ProviderUsageSummary {
+  const selected = new Set<SearchProviderName>();
+  const skipped = new Set<SearchProviderName>();
+  const exhausted = new Set<SearchProviderName>();
+  const providerErrors: ProviderErrorTrace[] = [];
+  const seenErrors = new Set<string>();
+  let providerFallbackUsed = false;
+
+  for (const candidate of candidates) {
+    const trace = (candidate.metadata as { searchTrace?: ProviderUsageSummary })
+      ?.searchTrace;
+    if (!trace) continue;
+
+    for (const p of trace.selectedProviders ?? []) selected.add(p);
+    for (const p of trace.skippedProviders ?? []) skipped.add(p);
+    for (const p of trace.exhaustedProviders ?? []) exhausted.add(p);
+    for (const err of trace.providerErrors ?? []) {
+      const key = `${err.provider}:${err.kind}:${err.message}`;
+      if (seenErrors.has(key)) continue;
+      seenErrors.add(key);
+      providerErrors.push(err);
+    }
+    if (trace.providerFallbackUsed) providerFallbackUsed = true;
+  }
+
+  return {
+    selectedProviders: [...selected],
+    skippedProviders: [...skipped],
+    exhaustedProviders: [...exhausted],
+    providerErrors,
+    providerFallbackUsed,
+  };
 }

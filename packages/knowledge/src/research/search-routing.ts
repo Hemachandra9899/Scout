@@ -20,7 +20,7 @@ export function determineProviderRoute(query: string): ProviderRoute {
     return {
       routeKind: "code",
       routeReason: "Code, SDK, repository, or implementation query.",
-      selectedProviders: ["github", "tavily", "firecrawl"],
+      selectedProviders: ["github", "tavily", "firecrawl", "local_fetch"],
       freshnessRequired: false,
     };
   }
@@ -29,7 +29,7 @@ export function determineProviderRoute(query: string): ProviderRoute {
     return {
       routeKind: "freshness",
       routeReason: "Freshness-sensitive query detected (latest, pricing, versions, deprecations).",
-      selectedProviders: ["tavily", "firecrawl"],
+      selectedProviders: ["tavily", "firecrawl", "local_fetch"],
       freshnessRequired: true,
     };
   }
@@ -37,7 +37,7 @@ export function determineProviderRoute(query: string): ProviderRoute {
   return {
     routeKind: "docs",
     routeReason: "General documentation or API reference query.",
-    selectedProviders: ["tavily", "firecrawl"],
+    selectedProviders: ["tavily", "firecrawl", "local_fetch"],
     freshnessRequired: false,
   };
 }

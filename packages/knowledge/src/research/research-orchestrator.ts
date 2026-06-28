@@ -216,54 +216,71 @@ export class ResearchOrchestrator {
 
     const allResourceBatches: RankedResource[][] = [];
 
-    for (const subquery of subqueries) {
-      const resourcePlan = await trace.timed(`plan_resources:${subquery.query.slice(0, 40)}`, () =>
-        planResources({
-          query: subquery.query,
-          maxSources: Math.max(5, Math.ceil(maxSources / subqueries.length)),
-          memoryHints: rankingMemories,
-        }),
-      researchConfig.stageTimeoutMs);
+    // Subqueries are independent — plan their resources concurrently.
+    // Promise.all preserves order, and mergeResources() dedups across batches.
+    const subqueryBatches = await Promise.all(
+      subqueries.map((subquery) =>
+        trace
+          .timed(
+            `plan_resources:${subquery.query.slice(0, 40)}`,
+            () =>
+              planResources({
+                query: subquery.query,
+                maxSources: Math.max(5, Math.ceil(maxSources / subqueries.length)),
+                memoryHints: rankingMemories,
+              }),
+            researchConfig.stageTimeoutMs,
+          )
+          .then((resourcePlan) => {
+            for (const resource of resourcePlan.resources) {
+              if (!resource.matchedBy) resource.matchedBy = [];
+              resource.matchedBy.push(`subquery:${subquery.query}`);
+            }
+            return resourcePlan.resources;
+          }),
+      ),
+    );
 
-      for (const resource of resourcePlan.resources) {
-        if (!resource.matchedBy) {
-          resource.matchedBy = [];
-        }
-
-        resource.matchedBy.push(`subquery:${subquery.query}`);
-      }
-
-      allResourceBatches.push(resourcePlan.resources);
-    }
+    allResourceBatches.push(...subqueryBatches);
 
     const newsPlan = buildNewsQueryPlan(input.query);
 
     if (newsPlan.isNewsQuery) {
       const newsBatchQueries = newsPlan.queries.slice(0, researchConfig.fastMode ? 4 : 6);
 
-      for (const newsQuery of newsBatchQueries) {
-        const candidates = await trace.timed(`resources:news:${newsQuery.slice(0, 40)}`, () =>
-          searchResourceCandidates(newsQuery, 5, {
-            freshnessRequired: isFreshnessRequired(newsQuery),
-          }),
-        researchConfig.stageTimeoutMs);
+      // News subqueries are independent — discover + rank them concurrently.
+      const newsBatches = await Promise.all(
+        newsBatchQueries.map((newsQuery) =>
+          trace
+            .timed(
+              `resources:news:${newsQuery.slice(0, 40)}`,
+              () =>
+                searchResourceCandidates(newsQuery, 5, {
+                  freshnessRequired: isFreshnessRequired(newsQuery),
+                }),
+              researchConfig.stageTimeoutMs,
+            )
+            .then((candidates) => {
+              const ranked = rankResourceCandidates(newsQuery, candidates, {
+                maxSources: Math.max(3, Math.ceil(maxSources / Math.max(newsBatchQueries.length, 1))),
+                minScore: 25,
+                memoryHints: rankingMemories,
+                maxPerDomain: 2,
+                freshnessRequired: isFreshnessRequired(newsQuery),
+              });
 
-        const ranked = rankResourceCandidates(newsQuery, candidates, {
-          maxSources: Math.max(3, Math.ceil(maxSources / Math.max(newsBatchQueries.length, 1))),
-          minScore: 25,
-          memoryHints: rankingMemories,
-          maxPerDomain: 2,
-          freshnessRequired: isFreshnessRequired(newsQuery),
-        });
+              for (const resource of ranked) {
+                if (!resource.matchedBy) resource.matchedBy = [];
+                resource.matchedBy.push(`news:${newsQuery}`);
+                resource.score += 300;
+              }
 
-        for (const resource of ranked) {
-          if (!resource.matchedBy) resource.matchedBy = [];
-          resource.matchedBy.push(`news:${newsQuery}`);
-          resource.score += 300;
-        }
+              return ranked;
+            }),
+        ),
+      );
 
-        allResourceBatches.push(ranked);
-      }
+      allResourceBatches.push(...newsBatches);
     }
 
     const officialSeedsList = officialSourceSeedsForQuery(input.query);
@@ -297,24 +314,29 @@ export class ResearchOrchestrator {
       const extraQueries = focusedQueries.filter((q) => q.toLowerCase() !== input.query.toLowerCase());
 
       if (extraQueries.length > 0) {
-        const extraResourceBatches: RankedResource[][] = [];
-
-        for (const focusedQuery of extraQueries) {
-          const batch = await trace.timed(`plan_resources:${focusedQuery.slice(0, 40)}`, () =>
-            planResources({
-              query: focusedQuery,
-              maxSources: Math.max(3, Math.ceil(maxSources / Math.max(extraQueries.length, 1))),
-              memoryHints: rankingMemories,
-            }),
-          researchConfig.stageTimeoutMs);
-
-          for (const resource of batch.resources) {
-            if (!resource.matchedBy) resource.matchedBy = [];
-            resource.matchedBy.push(`focused:${focusedQuery}`);
-          }
-
-          extraResourceBatches.push(batch.resources);
-        }
+        // Focused fallback queries are independent — plan them concurrently.
+        const extraResourceBatches = await Promise.all(
+          extraQueries.map((focusedQuery) =>
+            trace
+              .timed(
+                `plan_resources:${focusedQuery.slice(0, 40)}`,
+                () =>
+                  planResources({
+                    query: focusedQuery,
+                    maxSources: Math.max(3, Math.ceil(maxSources / Math.max(extraQueries.length, 1))),
+                    memoryHints: rankingMemories,
+                  }),
+                researchConfig.stageTimeoutMs,
+              )
+              .then((batch) => {
+                for (const resource of batch.resources) {
+                  if (!resource.matchedBy) resource.matchedBy = [];
+                  resource.matchedBy.push(`focused:${focusedQuery}`);
+                }
+                return batch.resources;
+              }),
+          ),
+        );
 
         const extraMerged = mergeResources(extraResourceBatches);
         const allWithFocused = [...mergedResources, ...extraMerged];
@@ -606,28 +628,32 @@ export class ResearchOrchestrator {
         ]) : []),
       ].filter((q, i, a) => a.indexOf(q) === i).slice(0, 6);
 
-      const recoveryResources: RankedResource[] = [];
-
-      for (const recoveryQuery of recoveryQueries) {
-        const recoveryBatch = await trace.timed(
-          `recovery_retry:plan_resources:${recoveryQuery.slice(0, 40)}`,
-          () =>
-            planResources({
-              query: recoveryQuery,
-              maxSources: researchConfig.fastMode ? 3 : 5,
-              memoryHints: rankingMemories,
+      // Recovery queries are independent — plan them concurrently.
+      const recoveryBatches = await Promise.all(
+        recoveryQueries.map((recoveryQuery) =>
+          trace
+            .timed(
+              `recovery_retry:plan_resources:${recoveryQuery.slice(0, 40)}`,
+              () =>
+                planResources({
+                  query: recoveryQuery,
+                  maxSources: researchConfig.fastMode ? 3 : 5,
+                  memoryHints: rankingMemories,
+                }),
+              researchConfig.stageTimeoutMs,
+            )
+            .then((recoveryBatch) => {
+              for (const resource of recoveryBatch.resources) {
+                if (!resource.matchedBy) resource.matchedBy = [];
+                resource.matchedBy.push(`recovery:${recoveryQuery}`);
+                resource.score += 250;
+              }
+              return recoveryBatch.resources;
             }),
-          researchConfig.stageTimeoutMs,
-        );
+        ),
+      );
 
-        for (const resource of recoveryBatch.resources) {
-          if (!resource.matchedBy) resource.matchedBy = [];
-          resource.matchedBy.push(`recovery:${recoveryQuery}`);
-          resource.score += 250;
-        }
-
-        recoveryResources.push(...recoveryBatch.resources);
-      }
+      const recoveryResources: RankedResource[] = recoveryBatches.flat();
 
       const recoveryRelevance = filterAndRankSourcesForQuery(
         recoveryResources,

@@ -39,6 +39,8 @@ const DEFAULT_BUDGETS: ProviderBudgets = {
   firecrawl: { maxResults: 6, enabled: true },
   tavily: { maxResults: 10, enabled: true },
   github: { maxResults: 8, enabled: true },
+  // Gated by isConfigured() via LOCAL_CRAWL_ENABLED; off unless the flag is set.
+  local_fetch: { maxResults: 4, enabled: true },
 };
 
 const ROUTE_BUDGETS: RouteBudgets = {
@@ -46,16 +48,19 @@ const ROUTE_BUDGETS: RouteBudgets = {
     firecrawl: { maxResults: 6, enabled: true },
     tavily: { maxResults: 8, enabled: true },
     github: { maxResults: 3, enabled: false },
+    local_fetch: { maxResults: 4, enabled: true },
   },
   freshness: {
     firecrawl: { maxResults: 4, enabled: true },
     tavily: { maxResults: 10, enabled: true },
     github: { maxResults: 3, enabled: false },
+    local_fetch: { maxResults: 4, enabled: true },
   },
   code: {
     firecrawl: { maxResults: 4, enabled: true },
     tavily: { maxResults: 6, enabled: true },
     github: { maxResults: 10, enabled: true },
+    local_fetch: { maxResults: 3, enabled: true },
   },
 };
 

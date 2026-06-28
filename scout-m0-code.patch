@@ -1,0 +1,535 @@
+diff --git a/AGENTS.md b/AGENTS.md
+new file mode 100644
+index 0000000..9f0c9ab
+--- /dev/null
++++ b/AGENTS.md
+@@ -0,0 +1,35 @@
++# Scout agent rules
++
++Scout is an evidence-first research engine evolving into an eval-gated, self-improving problem-solving agent platform.
++
++Use the Ponytail ladder before writing code:
++
++1. Does this need to exist? If not, do not build it.
++2. Does this already exist in Scout? Reuse the existing helper/module.
++3. Does the standard library or platform already solve it?
++4. Does an installed dependency already solve it?
++5. Can this be one line?
++6. Only then write the minimum code that works.
++
++Project-specific rules:
++
++- Harness before feature: add or update eval coverage before changing behavior.
++- Deterministic-first, model-second: use hard routing/ranking rules before adding model calls.
++- Keep route handlers thin; shared logic belongs in small helpers.
++- Do not add dependencies unless the existing stack cannot cover the task.
++- Do not silently weaken evidence, grounding, memory isolation, security, or budget checks.
++- New agent/swarm/caching/reranker paths must be flag-gated and default off.
++- Memory writes must stay scoped and traceable; durable facts need provenance.
++- Non-trivial logic needs one runnable check or eval case.
++
++For the platform roadmap, implement milestones from `docs/SCOUT_PLATFORM_PLAN.md` in order:
++
++```text
++M0 measurement -> M1 provider guard -> M2 parallel/streaming -> M3 intent -> M4 memory -> M5 retrieval/rerank -> M6 cache -> M8 sandbox -> M7 executor -> M9 self-learning
++```
++
++Do not build the whole target system in one diff. The smallest reviewed milestone wins.
+diff --git a/opencode.json b/opencode.json
+new file mode 100644
+index 0000000..1cd774d
+--- /dev/null
++++ b/opencode.json
+@@ -0,0 +1,3 @@
++{
++  "plugin": ["@dietrichgebert/ponytail"]
++}
+diff --git a/apps/api/src/modules/router/router.service.ts b/apps/api/src/modules/router/router.service.ts
+index 0064ce7..3f6a2cb 100644
+--- a/apps/api/src/modules/router/router.service.ts
++++ b/apps/api/src/modules/router/router.service.ts
+@@ -67,6 +67,55 @@ const ROUTER_CODING_MAX_TOKENS = Number(
+ );
+ 
+ const memoryManager = new MemoryManager();
++
++const DOCUMENT_LOOKUP_TERMS = [
++  "uploaded",
++  "pdf",
++  "readme",
++  "knowledge base",
++  "kb",
++  "project knowledge",
++  "from the file",
++  "from uploaded",
++];
++
++const COMPUTE_TERMS = [
++  "sort",
++  "remove duplicates",
++  "mean",
++  "median",
++  "group by",
++  "aggregate",
++  "chart",
++  "parse",
++  "calculate",
++  "compute",
++  "last 100 commits",
++  "frequency",
++];
++
++const CODE_QUERY_TERMS = [
++  "code",
++  "function",
++  "leetcode",
++  "linked list",
++  "algorithm",
++  "time complexity",
++  "space complexity",
++  "implement",
++  "debug",
++  "typescript",
++  "javascript",
++  "python",
++];
++
++const EXTERNAL_RESEARCH_TERMS = [
++  "latest",
++  "news",
++  "current",
++  "recent",
++  "today",
++  "this week",
++  "api",
++  "docs",
++  "documentation",
++  "auth",
++  "authenticate",
++  "authentication",
++  "permissions",
++  "rate limit",
++  "quota",
++  "compare",
++  "comparison",
++  "versus",
++  " vs ",
++];
++
+ function hasGithubRepoUrl(query: string): boolean {
+   return /https?:\/\/github\.com\/[^\s/]+\/[^\s/]+/i.test(query);
+ }
+@@ -293,10 +335,47 @@ function isRepoGraphReportQuery(query: string): boolean {
+     q.includes("graph_report") ||
+     q.includes("architecture graph report") ||
+     q.includes("summarize the codebase graph") ||
+-    q.includes("generate.*graph.*report")
++    /generate\b.*\bgraph\b.*\breport/.test(q)
+   );
+ }
+ 
+ function includesAny(query: string, terms: string[]): boolean {
+   const q = query.toLowerCase();
+   return terms.some((term) => q.includes(term.toLowerCase()));
+ }
++
++function isDocumentLookupQuery(query: string): boolean {
++  const q = query.toLowerCase();
++  return includesAny(q, DOCUMENT_LOOKUP_TERMS) || /\bdocuments?\b/.test(q);
++}
++
++function isComputationQuery(query: string): boolean {
++  return includesAny(query, COMPUTE_TERMS);
++}
++
++function isPureCodingQuery(query: string): boolean {
++  const q = query.toLowerCase();
++  if (!includesAny(q, CODE_QUERY_TERMS)) return false;
++
++  return !includesAny(q, [
++    "latest",
++    "news",
++    "current",
++    "recent",
++    "today",
++    "this week",
++    "docs",
++    "documentation",
++    "auth",
++    "authenticate",
++    "authentication",
++    "permissions",
++    "rate limit",
++    "quota",
++  ]);
++}
++
++function isExternalResearchQuery(query: string): boolean {
++  return includesAny(query, EXTERNAL_RESEARCH_TERMS) && !isPureCodingQuery(query);
++}
+ 
+ function isClearlyInsufficientEvidenceQuery(query: string): boolean {
+   const q = query.toLowerCase();
+@@ -377,8 +504,6 @@ function deterministicNoEvidenceResponse(
+ }
+ 
+ export function routeScoutQuery(query: string): RouterDecision {
+-  const q = query.toLowerCase();
+-
+   if (isClearlyInsufficientEvidenceQuery(query)) {
+     return {
+       tier: 1,
+
+@@ -406,94 +485,47 @@ export function routeScoutQuery(query: string): RouterDecision {
+     };
+   }
+ 
+-  if (
+-    includesAny(q, [
+-      "latest",
+-      "news",
+-      "current",
+-      "recent",
+-      "today",
+-      "this week",
+-      "api",
+-      "docs",
+-      "documentation",
+-      "auth",
+-      "authenticate",
+-      "authentication",
+-      "rate limit",
+-      "quota",
+-      "compare",
+-      "comparison",
+-      "versus",
+-      " vs ",
+-    ])
+-  ) {
++  if (isDocumentLookupQuery(query)) {
+     return {
+-      tier: 2,
+-      route: "research_orchestrator",
+-      tool: "web_research",
+-      reason: "Research/current/API/comparison query; use ResearchOrchestrator as default.",
++      tier: 1,
++      route: "direct_tool",
++      tool: "search_kb",
++      reason: "Document/KB lookup; use search_kb directly.",
+     };
+   }
+ 
+-  if (
+-    includesAny(q, [
+-      "uploaded",
+-      "document",
+-      "pdf",
+-      "readme",
+-      "knowledge base",
+-      "kb",
+-      "project knowledge",
+-      "from the file",
+-      "from uploaded",
+-    ])
+-  ) {
++  if (isComputationQuery(query)) {
+     return {
+-      tier: 1,
+-      route: "direct_tool",
+-      tool: "search_kb",
+-      reason: "Document/KB lookup; use search_kb directly.",
++      tier: 3,
++      route: "sandbox",
++      tool: "sandbox",
++      reason: "Query needs explicit computation or data transformation; use sandbox.",
+     };
+   }
+ 
+-  if (
+-    includesAny(q, [
+-      "sort",
+-      "remove duplicates",
+-      "mean",
+-      "median",
+-      "group by",
+-      "aggregate",
+-      "chart",
+-      "parse",
+-      "calculate",
+-      "compute",
+-      "last 100 commits",
+-      "frequency",
+-    ])
+-  ) {
++  if (isExternalResearchQuery(query)) {
+     return {
+-      tier: 3,
+-      route: "sandbox",
+-      tool: "sandbox",
+-      reason: "Query needs explicit computation or data transformation; use sandbox.",
++      tier: 2,
++      route: "research_orchestrator",
++      tool: "web_research",
++      reason: "Research/current/API/comparison query; use ResearchOrchestrator as default.",
+     };
+   }
+ 
+-  if (
+-    includesAny(q, [
+-      "code",
+-      "function",
+-      "leetcode",
+-      "linked list",
+-      "algorithm",
+-      "time complexity",
+-      "space complexity",
+-      "implement",
+-      "debug",
+-      "typescript",
+-      "javascript",
+-      "python",
+-    ])
+-  ) {
++  if (isPureCodingQuery(query)) {
+     return {
+       tier: 1,
+       route: "direct_model",
+       tool: "direct_model",
+       reason: "Pure coding question; use direct coding model without web research.",
+     };
+   }
+diff --git a/harness/eval/m0-cases/adversarial-routing.json b/harness/eval/m0-cases/adversarial-routing.json
+new file mode 100644
+index 0000000..8762582
+--- /dev/null
++++ b/harness/eval/m0-cases/adversarial-routing.json
+@@ -0,0 +1,142 @@
++[
++  {
++    "id": "m0-code-compare-python-arrays",
++    "intent": "routing_trap_code_compare",
++    "query": "Compare these two arrays in Python and tell me the simplest way to find the missing values.",
++    "expectedTier": 1,
++    "expectedTool": "direct_model",
++    "maxLatencyMs": 30000
++  },
++  {
++    "id": "m0-uploaded-api-key-file",
++    "intent": "routing_trap_uploaded_api",
++    "query": "What does this API key in my uploaded file do? Do not search the web, use the uploaded project knowledge.",
++    "expectedTier": 1,
++    "expectedTool": "search_kb",
++    "maxLatencyMs": 30000
++  },
++  {
++    "id": "m0-fastapi-docs-research",
++    "intent": "routing_docs_research",
++    "query": "Find the current FastAPI documentation for background tasks and summarize the official guidance.",
++    "expectedTier": 2,
++    "expectedTool": "web_research",
++    "maxLatencyMs": 180000
++  },
++  {
++    "id": "m0-api-comparison-research",
++    "intent": "routing_api_comparison",
++    "query": "Compare Meta Marketing API and Google Ads API permissions and rate limits using official docs.",
++    "expectedTier": 2,
++    "expectedTool": "web_research",
++    "maxLatencyMs": 180000
++  },
++  {
++    "id": "m0-github-repo-url",
++    "intent": "routing_github_repo",
++    "query": "Analyze this repo https://github.com/Hemachandra9899/Scout and explain the main modules.",
++    "expectedTier": 2,
++    "expectedTool": "github_repo",
++    "maxLatencyMs": 90000
++  },
++  {
++    "id": "m0-graphify-repo-url",
++    "intent": "routing_graphify_repo",
++    "query": "Graphify this repo https://github.com/Hemachandra9899/Scout and build the code graph.",
++    "expectedTier": 2,
++    "expectedTool": "github_repo",
++    "expectedPhase2": {
++      "graphifyRepoUsed": true
++    },
++    "maxLatencyMs": 120000
++  },
++  {
++    "id": "m0-memo-repo-url",
++    "intent": "routing_memo_repo",
++    "query": "Memo this repo https://github.com/Hemachandra9899/Scout so Scout remembers its architecture.",
++    "expectedTier": 2,
++    "expectedTool": "github_repo",
++    "expectedPhase2": {
++      "memoRepoUsed": true
++    },
++    "maxLatencyMs": 120000
++  },
++  {
++    "id": "m0-repo-graph-report-natural",
++    "intent": "routing_graph_report",
++    "query": "Generate a graph report for the Scout repo graph and summarize the main architecture relationships.",
++    "expectedTier": 3,
++    "expectedTool": "query_graph",
++    "expectedPhase2": {
++      "graphReportUsed": true
++    },
++    "maxLatencyMs": 60000
++  },
++  {
++    "id": "m0-repo-graph-question",
++    "intent": "routing_graph_question",
++    "query": "In the repo graph, what entities are related to the research orchestrator?",
++    "expectedTier": 3,
++    "expectedTool": "query_graph",
++    "expectedPhase2": {
++      "repoGraphUsed": true
++    },
++    "maxLatencyMs": 60000
++  },
++  {
++    "id": "m0-sandbox-compute",
++    "intent": "routing_compute",
++    "query": "Calculate the mean and median of [4, 9, 10, 11, 20] and show the exact arithmetic.",
++    "expectedTier": 3,
++    "expectedTool": "sandbox",
++    "maxLatencyMs": 30000
++  },
++  {
++    "id": "m0-current-news-research",
++    "intent": "routing_current_research",
++    "query": "What is the latest news about Qdrant hybrid search support this week?",
++    "expectedTier": 2,
++    "expectedTool": "web_research",
++    "maxLatencyMs": 180000
++  },
++  {
++    "id": "m0-project-knowledge-readme",
++    "intent": "routing_kb_readme",
++    "query": "From the README in this project knowledge base, what is Scout's current architecture?",
++    "expectedTier": 1,
++    "expectedTool": "search_kb",
++    "maxLatencyMs": 30000
++  }
++]
+diff --git a/harness/eval/retrieval-cases/README.md b/harness/eval/retrieval-cases/README.md
+new file mode 100644
+index 0000000..cf4f6fb
+--- /dev/null
++++ b/harness/eval/retrieval-cases/README.md
+@@ -0,0 +1,41 @@
++# Retrieval relevance cases
++
++M0 starts with routing measurement because the current harness already supports it.
++
++Use this folder for the next small retrieval baseline once the harness has a lightweight `retrieval` target.
++Do not add a new retrieval framework until this schema can run through the existing harness with a tiny diff.
++
++Suggested schema:
++
++```json
++[
++  {
++    "id": "retrieval-api-comparison-official-docs",
++    "query": "Compare Meta Marketing API and Google Ads API permissions and rate limits",
++    "surface": "research_evidence",
++    "relevant": [
++      {
++        "urlContains": "developers.facebook.com",
++        "grade": 3,
++        "reason": "Official Meta source"
++      },
++      {
++        "urlContains": "developers.google.com/google-ads/api",
++        "grade": 3,
++        "reason": "Official Google Ads source"
++      }
++    ],
++    "metrics": ["recall@5", "ndcg@10"]
++  }
++]
++```
++
++Rules:
++
++- Keep the set small and hand-verified.
++- Prefer official docs and source URLs as grade-3 relevance.
++- Use this to prove the M5 reranker improves retrieval before claiming answer quality improved.
+diff --git a/package.json b/package.json
+index 3ff7f74..94b88fd 100644
+--- a/package.json
++++ b/package.json
+@@ -32,6 +32,7 @@
+     "eval:ci": "npm run harness:ci",
+     "eval:phase2": "EVAL_TARGET=router EVAL_CASES_DIR=harness/eval/phase2-cases node harness/eval/run-eval.mjs",
+     "eval:phase3": "EVAL_TARGET=router EVAL_CASES_DIR=harness/eval/phase3-cases node harness/eval/run-eval.mjs",
++    "eval:m0": "EVAL_TARGET=router EVAL_CASES_DIR=harness/eval/m0-cases node harness/eval/run-eval.mjs",
+     "eval:analyze": "npm run harness:analyze",
+     "harness:research": "node harness/run-research-benchmark.mjs",
+     "harness:eval": "node harness/eval/run-eval.mjs",
+diff --git a/README.md b/README.md
+index 2b6c6f5..0d75093 100644
+--- a/README.md
++++ b/README.md
+@@ -14,6 +14,8 @@
+ 
+ Not a chatbot. Scout plans, searches, crawls, verifies, remembers useful context, and answers with evidence.
+ 
++Scout's next direction is an eval-gated problem-solving agent platform: better retrieval, curated memory, controlled agents, caching, sandboxed computation, and a self-learning loop — shipped one measured milestone at a time.
++
+ <br/>
+ 
+ [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white&style=flat-square)](https://docker.com)
+@@ -85,6 +87,42 @@ Scout does not just generate. It researches, indexes, verifies, remembers — and
+ 
+ ---
+ 
++## Target System Direction
++
++Scout evolves from an evidence-first research engine into a self-improving problem-solving agent platform.
++
++```mermaid
++flowchart TD
++  UI[Streaming Chat UI<br/>partial answers + trace/debug panels]
++  Planner[Intent Planner<br/>deterministic overrides + LLM fallback<br/>typed task DAG]
++  Executor[Agent Executor Controller<br/>budgets + permissions]
++  Researcher[Researcher xN]
++  Crawler[Crawler]
++  Evidence[Evidence + Verify]
++  Answer[Answer + Critic]
++  Retrieval[Hybrid Retrieval → Reranker<br/>BM25 + vector recall + cross-encoder rerank]
++  Memory[Tiered Memory + Curator<br/>working + episodic + semantic + procedural]
++  Stores[Stores<br/>Postgres + Qdrant + Redis/BullMQ]
++  Harness[Harness + Evals + Self-learning Loop<br/>traces → learned routing/source strategies → procedural memory]
++  Cache[Cross-cutting Cache<br/>prompt/LLM + retrieval/rerank + embedding + answer TTL]
++
++  UI --> Planner --> Executor
++  Executor --> Researcher
++  Executor --> Crawler
++  Executor --> Evidence
++  Executor --> Answer
++  Executor --> Retrieval --> Memory --> Stores --> Harness
++  Harness -. improves .-> Planner
++  Cache -. supports .-> Executor
++  Cache -. supports .-> Retrieval
++  Cache -. invalidated by .-> Memory
++```
++
++The current implementation starts with **M0: measurement foundation**. Every later capability must move an eval number without regressing existing gates.
++
++```bash
++npm run eval:m0
++npm run eval:ci
++npm run eval:phase2
++npm run eval:phase3
++```
++
++See `docs/SCOUT_PLATFORM_PLAN.md` for the full milestone plan.
++
++---
++
+ ## Current Capabilities
+ 
+ | Capability | Status |

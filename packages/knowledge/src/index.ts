@@ -14,6 +14,8 @@ export * from "./research/answer-mode.js";
 export * from "./research/answer-renderers.js";
 export * from "./research/citation-verifier.js";
 export * from "./research/evidence-extractor.js";
+export * from "./research/evidence-reranker.js";
+export * from "./research/reranker.js";
 
 export * from "./scrapers/firecrawl.scraper.js";
 export * from "./scrapers/scrapling.scraper.js";

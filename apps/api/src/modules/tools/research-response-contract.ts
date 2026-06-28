@@ -2,8 +2,10 @@ import type {
   CrawlTrace,
   EvidencePack,
   GroundingAudit,
+  ProviderUsageSummary,
   SynthesizedAnswer,
 } from "@rlm-forge/knowledge";
+import { summarizeProviderUsage } from "@rlm-forge/knowledge";
 
 type RawOrchestratorOutput = {
   status: string;
@@ -79,6 +81,7 @@ export type ResearchResponseContract = RawOrchestratorOutput & {
     memories: Record<string, unknown>;
     sourceRelevance: Record<string, unknown> | null;
     recoveryAttempted: boolean;
+    providers: ProviderUsageSummary;
   };
 };
 
@@ -180,6 +183,7 @@ export function buildResearchResponse(
       memories: memories ?? {},
       sourceRelevance,
       recoveryAttempted,
+      providers: summarizeProviderUsage(resourcesPlanned),
     },
   };
 }

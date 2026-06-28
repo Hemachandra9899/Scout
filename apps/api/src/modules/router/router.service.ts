@@ -133,13 +133,53 @@ async function recallMemories(input: RouterAnswerInput): Promise<ScoutMemory[]> 
   }).slice(0, 10);
 }
 
-function buildMemoryContext(memories: ScoutMemory[]): string {
-  if (memories.length === 0) return "";
+// Why a memory is (or isn't) relevant to the current query: entity + keyword overlap.
+function memoryRelevance(query: string, memory: ScoutMemory): { score: number; reasons: string[] } {
+  const q = query.toLowerCase();
+  const text = memory.text.toLowerCase();
+  const reasons: string[] = [];
+  let score = 0;
 
-  const lines = memories.slice(0, 6).map((memory, index) => {
-    const scope = memory.scope;
-    const kind = memory.kind;
-    return `[M${index + 1}] ${kind}/${scope}: ${memory.text}`;
+  const entityHits = memory.entities.filter(
+    (entity) => entity && q.includes(entity.toLowerCase()),
+  );
+  if (entityHits.length > 0) {
+    score += entityHits.length * 2;
+    reasons.push(`entity:${entityHits.join(",")}`);
+  }
+
+  const keywordHits = q
+    .split(/\s+/)
+    .filter((token) => token.length > 3 && text.includes(token));
+  if (keywordHits.length > 0) {
+    score += keywordHits.length;
+    reasons.push(`keywords:${keywordHits.length}`);
+  }
+
+  return { score, reasons };
+}
+
+// Decide which recalled memories are worth injecting into the answer prompt.
+// Preferences are always kept (style/constraints). Other kinds are kept only when
+// they actually overlap the query — with a safe fallback so we never inject nothing
+// when relevant memories exist.
+function selectInjectableMemories(query: string, memories: ScoutMemory[]): ScoutMemory[] {
+  if (memories.length === 0) return [];
+
+  const relevant = memories.filter(
+    (memory) => memory.kind === "preference" || memoryRelevance(query, memory).score > 0,
+  );
+
+  const chosen = relevant.length > 0 ? relevant : memories.slice(0, 2);
+  return chosen.slice(0, 6);
+}
+
+function buildMemoryContext(memories: ScoutMemory[], query: string): string {
+  const injectable = selectInjectableMemories(query, memories);
+  if (injectable.length === 0) return "";
+
+  const lines = injectable.map((memory, index) => {
+    return `[M${index + 1}] ${memory.kind}/${memory.scope}: ${memory.text}`;
   });
 
   return [
@@ -152,8 +192,11 @@ function buildMemoryContext(memories: ScoutMemory[]): string {
   ].join("\n");
 }
 
-function memoryDebug(memories: ScoutMemory[], setupWritten: number) {
+function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: string) {
   const recalledKinds = [...new Set(memories.map((m) => m.kind))];
+  const injectableIds = new Set(
+    selectInjectableMemories(query, memories).map((m) => m.id),
+  );
 
   return {
     setupWritten,
@@ -161,6 +204,20 @@ function memoryDebug(memories: ScoutMemory[], setupWritten: number) {
     recalledCount: memories.length,
     recalledKinds,
     recalledMemoryIds: memories.map((m) => m.id),
+    // Per-memory transparency: why each recalled memory was (or was not) used.
+    recalledMemoryDetails: memories.map((m) => {
+      const rel = memoryRelevance(query, m);
+      return {
+        id: m.id,
+        kind: m.kind,
+        scope: m.scope,
+        confidence: m.confidence,
+        relevanceScore: rel.score,
+        relevanceReasons: rel.reasons,
+        injected: injectableIds.has(m.id),
+      };
+    }),
+    injectedCount: injectableIds.size,
     blockedSourceAvoided: memories.some(
       (m) =>
         m.kind === "source_failure" &&
@@ -296,7 +353,7 @@ function isRepoGraphReportQuery(query: string): boolean {
     q.includes("graph_report") ||
     q.includes("architecture graph report") ||
     q.includes("summarize the codebase graph") ||
-    q.includes("generate.*graph.*report")
+    (q.includes("generate") && q.includes("graph") && q.includes("report"))
   );
 }
 
@@ -376,6 +433,67 @@ function deterministicNoEvidenceResponse(
   };
 }
 
+// Collision guard: a coding/algorithm question that has no live web/API signal.
+// Prevents "compare these two arrays in python" (code) from being captured by the
+// web_research keyword "compare"/"api", while leaving real API queries untouched.
+function looksLikePureCodeQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  const codeSignals = [
+    "leetcode",
+    "linked list",
+    "binary tree",
+    "algorithm",
+    "time complexity",
+    "space complexity",
+    "recursion",
+    "reverse a",
+    "two sum",
+    "big-o",
+    "big o notation",
+  ];
+  const langSignals = ["python", "javascript", "typescript", "c++", "golang"];
+  const hasCode =
+    codeSignals.some((t) => q.includes(t)) ||
+    langSignals.some((t) => q.includes(t));
+  if (!hasCode) return false;
+
+  const webSignals = [
+    "api",
+    "sdk",
+    "docs",
+    "documentation",
+    "oauth",
+    "authentication",
+    "authenticate",
+    "endpoint",
+    "webhook",
+    "rate limit",
+    "http://",
+    "https://",
+    "latest",
+    "news",
+    "pricing",
+    "changelog",
+  ];
+  return !webSignals.some((t) => q.includes(t));
+}
+
+// Collision guard: an uploaded/local document question that also mentions API terms
+// (e.g. "what does this api key in my uploaded file do") should hit the KB, not the web.
+function looksLikeUploadedDocQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  return [
+    "uploaded document",
+    "uploaded",
+    "this file",
+    "from the file",
+    "from uploaded",
+    "my document",
+    "attached file",
+    "in my pdf",
+  ].some((t) => q.includes(t));
+}
+
 export function routeScoutQuery(query: string): RouterDecision {
   const q = query.toLowerCase();
 
@@ -449,6 +567,26 @@ export function routeScoutQuery(query: string): RouterDecision {
       route: "direct_tool",
       tool: "search_kb",
       reason: "Scout architecture relationship query; use KB plus project graph context.",
+    };
+  }
+
+  if (looksLikeUploadedDocQuery(query)) {
+    return {
+      tier: 1,
+      route: "direct_tool",
+      tool: "search_kb",
+      reason:
+        "Uploaded/local document query; use search_kb even when API terms appear.",
+    };
+  }
+
+  if (looksLikePureCodeQuery(query)) {
+    return {
+      tier: 1,
+      route: "direct_model",
+      tool: "direct_model",
+      reason:
+        "Pure coding/algorithm question with no web-research signal; answer with the coding model.",
     };
   }
 
@@ -882,8 +1020,8 @@ function partialResearchTimeoutResponse(
 export async function answerWithRouter(input: RouterAnswerInput) {
   const setupWritten = await writeSetupMemories(input);
   const recalledMemories = await recallMemories(input);
-  const memoryContext = buildMemoryContext(recalledMemories);
-  const memory = memoryDebug(recalledMemories, setupWritten);
+  const memoryContext = buildMemoryContext(recalledMemories, input.query);
+  const memory = memoryDebug(recalledMemories, setupWritten, input.query);
 
   const decision = routeScoutQuery(input.query);
 

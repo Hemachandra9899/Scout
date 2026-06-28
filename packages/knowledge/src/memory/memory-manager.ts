@@ -31,15 +31,26 @@ function normalizeForKey(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function memoryDraftKey(draft: ScoutMemoryDraft): string {
+function memoryIdentityKey(input: {
+  projectId: string;
+  userId?: string | null;
+  scope: string;
+  kind: string;
+  text: string;
+  sourceUrls?: unknown;
+}): string {
   return [
-    draft.projectId,
-    draft.userId ?? "",
-    draft.scope,
-    draft.kind,
-    normalizeForKey(draft.text),
-    unique(draft.sourceUrls ?? []).sort().join("|"),
+    input.projectId,
+    input.userId ?? "",
+    input.scope,
+    input.kind,
+    normalizeForKey(input.text),
+    unique(asStringArray(input.sourceUrls)).sort().join("|"),
   ].join("::");
+}
+
+function memoryDraftKey(draft: ScoutMemoryDraft): string {
+  return memoryIdentityKey(draft);
 }
 
 function dedupeDrafts(drafts: ScoutMemoryDraft[]): ScoutMemoryDraft[] {
@@ -180,8 +191,45 @@ export type RepoMemoryInput = {
 };
 
 export class MemoryManager {
+  /**
+   * Drop drafts whose identity key already exists in the DB, so add-only memory does
+   * not accumulate byte-identical rows across runs. Best-effort (no lock); a cleared
+   * project sees no existing rows and behaves exactly as before.
+   */
+  private async filterAlreadyPersisted(
+    drafts: ScoutMemoryDraft[],
+  ): Promise<ScoutMemoryDraft[]> {
+    const projectIds = [...new Set(drafts.map((d) => d.projectId))];
+    const scopes = [...new Set(drafts.map((d) => d.scope))];
+    const kinds = [...new Set(drafts.map((d) => d.kind))];
+
+    const existing = await prisma.memory.findMany({
+      where: {
+        projectId: { in: projectIds },
+        scope: { in: scopes },
+        kind: { in: kinds },
+      },
+      select: {
+        projectId: true,
+        userId: true,
+        scope: true,
+        kind: true,
+        text: true,
+        sourceUrls: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1000,
+    });
+
+    const existingKeys = new Set(existing.map((row) => memoryIdentityKey(row)));
+    return drafts.filter((draft) => !existingKeys.has(memoryDraftKey(draft)));
+  }
+
   async addMany(drafts: ScoutMemoryDraft[]): Promise<number> {
-    const deduped = dedupeDrafts(drafts);
+    const batchDeduped = dedupeDrafts(drafts);
+    if (batchDeduped.length === 0) return 0;
+
+    const deduped = await this.filterAlreadyPersisted(batchDeduped);
     if (deduped.length === 0) return 0;
 
     await prisma.memory.createMany({
