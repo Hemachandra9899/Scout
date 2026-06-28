@@ -36,6 +36,8 @@ export type RepoGraphReportOutput = {
     graphReportNodeCount: number;
     graphReportRelationCount: number;
     graphReportHighDegreeCount: number;
+    graphReportPersisted: boolean;
+    graphReportPersistError?: string;
   };
 };
 
@@ -303,25 +305,31 @@ export async function generateRepoGraphReport(input: {
 
   let reportId: string | undefined;
 
-  if (input.persist) {
-    const report = await prisma.report.create({
-      data: {
-        projectId: input.projectId,
-        title: `Repo Graph Report: ${repoName}`,
-        content: markdown,
-        metadata: {
-          source: "repo_graph_report",
-          repoName,
-          entityCount: entities.length,
-          relationCount: relations.length,
-          highDegreeCount: highDegreeNodes.length,
-          suggestedQuestions,
-          relationTypeCounts,
-        },
-      },
-    });
+  let persistError: string | undefined;
 
-    reportId = report.id;
+  if (input.persist) {
+    try {
+      const report = await prisma.report.create({
+        data: {
+          projectId: input.projectId,
+          title: `Repo Graph Report: ${repoName}`,
+          content: markdown,
+          metadata: {
+            source: "repo_graph_report",
+            repoName,
+            entityCount: entities.length,
+            relationCount: relations.length,
+            highDegreeCount: highDegreeNodes.length,
+            suggestedQuestions,
+            relationTypeCounts,
+          },
+        },
+      });
+
+      reportId = report.id;
+    } catch (error) {
+      persistError = error instanceof Error ? error.message : String(error);
+    }
   }
 
   return {
@@ -339,6 +347,8 @@ export async function generateRepoGraphReport(input: {
       graphReportNodeCount: entities.length,
       graphReportRelationCount: relations.length,
       graphReportHighDegreeCount: highDegreeNodes.length,
+      graphReportPersisted: Boolean(reportId),
+      graphReportPersistError: persistError,
     },
   };
 }
