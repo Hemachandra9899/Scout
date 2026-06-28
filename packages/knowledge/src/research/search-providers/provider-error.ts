@@ -5,7 +5,7 @@ import type { SearchProviderName } from "./types.js";
  * should be skipped for the rest of the run while others continue. `auth` means a
  * bad/expired key. `error` is any other transient/unknown failure.
  */
-export type ProviderErrorKind = "exhausted" | "auth" | "error";
+export type ProviderErrorKind = "exhausted" | "auth" | "error" | "quota" | "rate_limit" | "network" | "unknown";
 
 export class ProviderError extends Error {
   constructor(

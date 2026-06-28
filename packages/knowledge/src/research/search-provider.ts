@@ -12,6 +12,7 @@ import {
   ProviderError,
   type ProviderErrorKind,
 } from "./search-providers/provider-error.js";
+import { classifyProviderError } from "./provider-errors.js";
 
 export type SearchResourceCandidateOptions = {
   freshnessRequired?: boolean;
@@ -137,7 +138,7 @@ export async function searchResourceCandidates(
     } else {
       const reason = item.reason;
       const kind: ProviderErrorKind =
-        reason instanceof ProviderError ? reason.kind : "error";
+        reason instanceof ProviderError ? reason.kind : classifyProviderError(reason);
       runs.push({
         provider: providerName,
         status: "rejected",
@@ -181,8 +182,9 @@ function summarizeRuns(runs: ProviderRunTrace[]): ProviderUsageSummary {
     .map((r) => r.provider);
   const rejected = runs.filter((r) => r.status === "rejected");
 
+  const EXHAUSTED_KINDS = new Set<ProviderErrorKind>(["exhausted", "quota", "rate_limit"]);
   const exhaustedProviders = rejected
-    .filter((r) => r.errorKind === "exhausted")
+    .filter((r) => r.errorKind && EXHAUSTED_KINDS.has(r.errorKind))
     .map((r) => r.provider);
   const providerErrors: ProviderErrorTrace[] = rejected.map((r) => ({
     provider: r.provider,

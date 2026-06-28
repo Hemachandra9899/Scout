@@ -25,11 +25,15 @@ function provider(name: "firecrawl" | "tavily" | "github", url: string): SearchP
 }
 
 describe("searchResourceCandidates", () => {
+  const env = process.env;
+
   afterEach(() => {
+    process.env = { ...env };
     vi.restoreAllMocks();
   });
 
   it("runs configured providers and merges duplicate URLs", async () => {
+    process.env = { ...env, FIRECRAWL_ENABLED: "true" };
     const providers = [
       provider("firecrawl", "https://docs.example.com/auth"),
       provider("tavily", "https://docs.example.com/auth/"),

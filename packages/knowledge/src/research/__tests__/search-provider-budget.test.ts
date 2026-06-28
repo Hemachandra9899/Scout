@@ -69,6 +69,7 @@ describe("search provider budgets", () => {
 
   it("env TAVILY_ENABLED=false skips tavily", async () => {
     process.env.TAVILY_ENABLED = "false";
+    process.env.FIRECRAWL_ENABLED = "true";
 
     const tavily = provider("tavily", "https://docs.example.com/auth");
     const firecrawl = provider("firecrawl", "https://docs.example.com/auth/");

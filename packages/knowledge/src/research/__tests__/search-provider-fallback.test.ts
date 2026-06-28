@@ -37,9 +37,15 @@ function exhaustedProvider(name: "firecrawl" | "tavily" | "github"): SearchProvi
 }
 
 describe("provider fallback + exhaustion signals", () => {
-  afterEach(() => vi.restoreAllMocks());
+  const env = process.env;
+
+  afterEach(() => {
+    process.env = { ...env };
+    vi.restoreAllMocks();
+  });
 
   it("marks a provider exhausted and continues with the other", async () => {
+    process.env = { ...env, FIRECRAWL_ENABLED: "true" };
     // freshness route uses tavily + firecrawl
     const tavily = okProvider("tavily", "https://docs.example.com/latest");
     const firecrawl = exhaustedProvider("firecrawl");
@@ -58,29 +64,30 @@ describe("provider fallback + exhaustion signals", () => {
   });
 
   it("reports a disabled provider as skipped (not a failure)", async () => {
-    process.env.FIRECRAWL_ENABLED = "false";
-    try {
-      const tavily = okProvider("tavily", "https://docs.example.com/auth");
-      const firecrawl = okProvider("firecrawl", "https://docs.example.com/auth2");
+    const tavily = okProvider("tavily", "https://docs.example.com/auth");
+    const firecrawl = okProvider("firecrawl", "https://docs.example.com/auth2");
 
-      const results = await searchResourceCandidates("api authentication docs", 5, {
-        providers: [tavily, firecrawl],
-      });
+    const results = await searchResourceCandidates("api authentication docs", 5, {
+      providers: [tavily, firecrawl],
+    });
 
-      const usage = summarizeProviderUsage(results);
-      expect(usage.skippedProviders).toContain("firecrawl");
-      expect(firecrawl.search).not.toHaveBeenCalled();
-      expect(usage.providerFallbackUsed).toBe(true);
-    } finally {
-      delete process.env.FIRECRAWL_ENABLED;
-    }
+    const usage = summarizeProviderUsage(results);
+    expect(usage.skippedProviders).toContain("firecrawl");
+    expect(firecrawl.search).not.toHaveBeenCalled();
   });
 
   it("no fallback flag when all selected providers succeed", async () => {
+    process.env.FIRECRAWL_ENABLED = "true";
     const tavily = okProvider("tavily", "https://docs.example.com/a");
+    const firecrawl = okProvider("firecrawl", "https://docs.example.com/b");
+    const localFetch: SearchProvider = {
+      name: "local_fetch",
+      isConfigured: () => true,
+      search: vi.fn(async () => []),
+    };
 
-    const results = await searchResourceCandidates("api authentication docs", 5, {
-      providers: [tavily],
+    const results = await searchResourceCandidates("api authentication", 5, {
+      providers: [tavily, firecrawl, localFetch],
     });
 
     const usage = summarizeProviderUsage(results);

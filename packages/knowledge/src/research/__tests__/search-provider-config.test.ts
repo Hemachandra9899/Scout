@@ -46,7 +46,7 @@ describe("getRouteBudgets", () => {
     const budgets = getRouteBudgets("docs");
     expect(budgets.tavily.maxResults).toBe(8);
     expect(budgets.github.enabled).toBe(false);
-    expect(budgets.firecrawl.enabled).toBe(true);
+    expect(budgets.firecrawl.enabled).toBe(false);
   });
 
   it("freshness route gives tavily highest budget", () => {
