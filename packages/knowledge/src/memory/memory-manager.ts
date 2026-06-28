@@ -6,6 +6,8 @@ import type {
   ScoutMemorySearchInput,
 } from "./memory-types.js";
 import type { EvidenceItem, EvidencePack } from "../research/source-types.js";
+import { curateAndWriteMemories } from "./memory-curator.js";
+import type { MemoryCuratorResult } from "./memory-curator.js";
 
 type CrawlFailureForMemory = {
   title?: string;
@@ -191,6 +193,12 @@ export type RepoMemoryInput = {
 };
 
 export class MemoryManager {
+  lastCuratorResult: MemoryCuratorResult | null = null;
+
+  getLastCuratorDebug(): MemoryCuratorResult["debug"] | null {
+    return this.lastCuratorResult?.debug ?? null;
+  }
+
   /**
    * Drop drafts whose identity key already exists in the DB, so add-only memory does
    * not accumulate byte-identical rows across runs. Best-effort (no lock); a cleared
@@ -226,28 +234,15 @@ export class MemoryManager {
   }
 
   async addMany(drafts: ScoutMemoryDraft[]): Promise<number> {
-    const batchDeduped = dedupeDrafts(drafts);
-    if (batchDeduped.length === 0) return 0;
+    if (drafts.length === 0) return 0;
 
-    const deduped = await this.filterAlreadyPersisted(batchDeduped);
-    if (deduped.length === 0) return 0;
-
-    await prisma.memory.createMany({
-      data: deduped.map((draft) => ({
-        projectId: draft.projectId,
-        userId: draft.userId,
-        scope: draft.scope,
-        kind: draft.kind,
-        text: draft.text,
-        entities: (draft.entities ?? []) as unknown as Prisma.InputJsonValue,
-        sourceUrls: (draft.sourceUrls ?? []) as unknown as Prisma.InputJsonValue,
-        confidence: draft.confidence ?? 0.7,
-        eventTime: draft.eventTime,
-        metadata: (draft.metadata ?? {}) as unknown as Prisma.InputJsonValue,
-      })),
+    this.lastCuratorResult = await curateAndWriteMemories({
+      projectId: drafts[0].projectId,
+      userId: drafts[0].userId,
+      drafts,
     });
 
-    return deduped.length;
+    return this.lastCuratorResult.writtenCount;
   }
 
   async search(input: ScoutMemorySearchInput): Promise<ScoutMemory[]> {

@@ -202,11 +202,25 @@ function buildMemoryContext(memories: ScoutMemory[], query: string): string {
   ].join("\n");
 }
 
-function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: string) {
+function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: string, curatorDebug?: Record<string, unknown> | null) {
   const recalledKinds = [...new Set(memories.map((m) => m.kind))];
   const injectableIds = new Set(
     selectInjectableMemories(query, memories).map((m) => m.id),
   );
+
+  const usedMemories = memories.slice(0, 8).map((m) => {
+    const metadata = m.metadata as Record<string, unknown> | null;
+    return {
+      id: m.id,
+      kind: m.kind,
+      scope: m.scope,
+      tier: metadata?.tier ?? "episodic",
+      confidence: m.confidence,
+      reason: memoryUseReason(m),
+      text: m.text.slice(0, 180),
+      sourceUrls: m.sourceUrls,
+    };
+  });
 
   return {
     setupWritten,
@@ -214,13 +228,14 @@ function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: strin
     recalledCount: memories.length,
     recalledKinds,
     recalledMemoryIds: memories.map((m) => m.id),
-    // Per-memory transparency: why each recalled memory was (or was not) used.
     recalledMemoryDetails: memories.map((m) => {
       const rel = memoryRelevance(query, m);
+      const metadata = m.metadata as Record<string, unknown> | null;
       return {
         id: m.id,
         kind: m.kind,
         scope: m.scope,
+        tier: metadata?.tier ?? "episodic",
         confidence: m.confidence,
         relevanceScore: rel.score,
         relevanceReasons: rel.reasons,
@@ -234,7 +249,28 @@ function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: strin
         ((m.metadata as any)?.domain_blocked || (m.metadata as any)?.user_blocked),
     ),
     sourceReuseUsed: memories.some((m) => m.kind === "source_quality"),
+    usedMemories,
+    ...(curatorDebug ?
+      {
+        memoryCuratorUsed: curatorDebug.curatorUsed === true,
+        memoryWrittenCount: Number(curatorDebug.writtenCount ?? 0),
+        memorySkippedCount: Number(curatorDebug.skippedCount ?? 0),
+      }
+    : {}),
   };
+}
+
+function memoryUseReason(memory: { kind: string; scope: string; metadata?: unknown }) {
+  const metadata = memory.metadata as Record<string, unknown> | null;
+  const tier = metadata?.tier as string | undefined;
+
+  if (memory.kind === "source_quality") return "Boosts previously useful source.";
+  if (memory.kind === "source_failure") return "Avoids previously bad source.";
+  if (memory.kind === "preference") return "User preference/context.";
+  if (memory.kind === "durable_fact") return "Previously stored durable context.";
+  if (memory.kind === "decision") return "Prior project decision.";
+  if (memory.kind === "task_trace") return "Prior task trace.";
+  return tier ? `Relevant ${tier} memory.` : "Relevant memory.";
 }
 
 function routeNeedsMemory(input: {
@@ -929,7 +965,7 @@ function partialResearchTimeoutResponse(
     },
     answer: answerMarkdown,
     error: reason,
-    debug: { memory, ...(memoryTiming ? { memoryTiming } : {}), routing: routeDebug(query) },
+    debug: { memory, ...(memoryTiming ? { memoryTiming } : {}), memoryCurator: memoryManager.getLastCuratorDebug(), routing: routeDebug(query) },
   };
 }
 
@@ -968,7 +1004,7 @@ async function getMemoryForRoute(input: {
     timing.skipped = true;
     timing.reason = "Route does not require memory and no setup messages were provided.";
     return {
-      memory: memoryDebug([], 0, input.query),
+      memory: memoryDebug([], 0, input.query, memoryManager.getLastCuratorDebug()),
       memoryContext: "",
       timing,
     };
@@ -1010,7 +1046,7 @@ async function getMemoryForRoute(input: {
       : "Route does not require memory and no setup messages were provided.";
 
   return {
-    memory: memoryDebug(memories, setupWritten, input.query),
+    memory: memoryDebug(memories, setupWritten, input.query, memoryManager.getLastCuratorDebug()),
     memoryContext: buildMemoryContext(memories, input.query),
     timing,
   };
@@ -1159,6 +1195,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       debug: {
         memory: (await memoryPromise).memory,
         memoryTiming: (await memoryPromise).timing,
+        memoryCurator: memoryManager.getLastCuratorDebug(),
         memoRepoUsed,
         memoRepoWritten,
         graphifyRepoUsed,
@@ -1333,6 +1370,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
             routing: routingDebug,
             memory: (await memoryPromise).memory,
             memoryTiming: (await memoryPromise).timing,
+            memoryCurator: memoryManager.getLastCuratorDebug(),
           },
         };
       }
@@ -1369,6 +1407,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           routing: routingDebug,
           memory: (await memoryPromise).memory,
           memoryTiming: (await memoryPromise).timing,
+          memoryCurator: memoryManager.getLastCuratorDebug(),
         },
       };
     } catch (error) {
@@ -1421,6 +1460,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         debug: {
           memory: memResult,
           memoryTiming: memTiming,
+          memoryCurator: memoryManager.getLastCuratorDebug(),
           ...(graphContext.used ? {
             graph: { used: true, reason: graphContext.reason, nodeCount: 0, edgeCount: 0 },
             graphContextUsed: true,
@@ -1534,6 +1574,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       debug: {
         memory: memResult,
         memoryTiming: memTiming,
+        memoryCurator: memoryManager.getLastCuratorDebug(),
         ...(graphContext.used ? {
           graph: {
             used: graphContext.used,
@@ -1596,6 +1637,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       debug: {
         memory: (await memoryPromise).memory,
         memoryTiming: (await memoryPromise).timing,
+        memoryCurator: memoryManager.getLastCuratorDebug(),
         graphContextUsed: true,
         graphReportUsed: true,
         graphReportId: report.reportId,
@@ -1660,6 +1702,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       debug: {
         memory: (await memoryPromise).memory,
         memoryTiming: (await memoryPromise).timing,
+        memoryCurator: memoryManager.getLastCuratorDebug(),
         repoGraphUsed: grpDebug.repoGraphUsed ?? false,
         graphContextUsed: true,
         graphPathUsed: grpDebug.graphPathUsed ?? false,
@@ -1682,7 +1725,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       const llResult = answerReverseLinkedListQuestion(input.query);
       return {
         ...llResult,
-        debug: { ...(llResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, routing: routingDebug },
+        debug: { ...(llResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, memoryCurator: memoryManager.getLastCuratorDebug(), routing: routingDebug },
       };
     }
 
@@ -1712,14 +1755,14 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         faithfulness: critic,
       },
       answer: answerMarkdown,
-      debug: { memory: memResult, memoryTiming: memTiming, routing: routingDebug },
+      debug: { memory: memResult, memoryTiming: memTiming, memoryCurator: memoryManager.getLastCuratorDebug(), routing: routingDebug },
     };
   }
 
   if (decision.tool === "sandbox") {
     const simpleResult = answerSimpleListComputation(input.query);
     if (simpleResult) {
-      return { ...simpleResult, debug: { ...(simpleResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, routing: routingDebug } };
+      return { ...simpleResult, debug: { ...(simpleResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, memoryCurator: memoryManager.getLastCuratorDebug(), routing: routingDebug } };
     }
 
     const result = await callRlmRuntime(input);
@@ -1744,7 +1787,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         evidenceCoverage,
         faithfulness: critic,
       },
-      debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, routing: routingDebug },
+      debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing, memoryCurator: memoryManager.getLastCuratorDebug(), routing: routingDebug },
     };
   }
 
