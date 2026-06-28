@@ -7,7 +7,6 @@ import {
 import { evaluateFaithfulness, type FaithfulnessCriticResult } from "./faithfulness-critic.js";
 import {
   buildProjectGraphContext,
-  shouldUseProjectGraphContext,
 } from "@rlm-forge/knowledge/graph/project-context-graph.js";
 import {
   classifyRouteIntent,

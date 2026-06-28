@@ -1,3 +1,8 @@
+/**
+ * Runtime-local LLM intent detection for the RLM sandbox loop.
+ * The API router source of truth is:
+ * packages/knowledge/src/router/intent-classifier.ts
+ */
 import type { ChatMessage } from "../types.ts";
 import { ModelClient } from "./modelClient.ts";
 import { stripMarkdownCodeFence } from "../utils/codeUtils.ts";
