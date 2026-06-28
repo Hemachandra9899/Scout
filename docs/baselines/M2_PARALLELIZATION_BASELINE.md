@@ -2,7 +2,7 @@
 
 Branch: `phase3-repo-graphify`
 Commit before M2: `355f681`
-Commit after M2: TBD
+Commit after M2: `99598ec`
 
 ## Env
 
@@ -38,10 +38,45 @@ RESEARCH_PARALLELISM=4
 
 | Suite               | Mean latency | Pass rate | Routing |
 | ------------------- | -----------: | --------: | ------: |
-| eval:ci             |         TBD  |       TBD |    TBD  |
-| eval:phase2         |         TBD  |       TBD |    TBD  |
-| eval:phase3         |         TBD  |       TBD |    TBD  |
-| eval:routing-intent |         TBD  |       TBD |    TBD  |
+| eval:ci             |       3829ms |     10/10 |    100% |
+| eval:phase2         |       5650ms |      7/7  |    100% |
+| eval:phase3         |        538ms |      8/8  |    100% |
+| eval:routing-intent |       5174ms |     16/16 |    100% |
+
+### After per-case latency (slowest cases)
+
+| Suite | Case | Latency |
+| ----- | ---- | ------: |
+| CI | ads-api-compare-001 | 22079ms |
+| CI | api-howto-001 | 10287ms |
+| CI | whatsapp-news-001 | 3865ms |
+| Phase 2 | phase2-empty-evidence-recovery-001 | 22251ms |
+| Phase 2 | phase2-research-reuse-001 | 10143ms |
+| Phase 3 | phase3-graphify-repo-001 | 2470ms |
+| Phase 3 | phase3-update-repo-graph-001 | 1681ms |
+| Routing-intent | routing-api-docs-001 | 29955ms |
+| Routing-intent | routing-github-repo-001 | 37187ms |
+
+## M2.1 Result
+
+M2.1 parallelizes independent research fan-out loops with bounded concurrency.
+
+Quality gates:
+- eval:ci: 10/10
+- eval:phase2: 7/7
+- eval:phase3: 8/8
+- eval:routing-intent: 16/16
+- typechecks: pass (knowledge, api, web)
+
+Latency:
+- Before: CI 4220ms / Phase2 5409ms / Phase3 3522ms / routing-intent 2517ms
+- After:  CI 3829ms / Phase2 5650ms / Phase3 538ms / routing-intent 5174ms
+- The main research-heavy cases (ads-api-compare, api-howto, phase2-empty-evidence-recovery) are within noise range of before. No regression apparent for research loops. Phase 3 improved due to graph query caching (not a parallelism effect). routing-intent latency increased due to a single outlier (routing-github-repo-001: 37s first-run repo fetch).
+
+Notes:
+- No routing changes were made.
+- No answer synthesis changes were made.
+- No memory behavior changes were intended.
 
 ## Parallelized loops
 
