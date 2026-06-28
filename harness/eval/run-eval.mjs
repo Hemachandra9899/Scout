@@ -525,6 +525,16 @@ function extractPhase2SignalsFromResponse(response) {
       response?.ui?.graph?.reportUsed ??
       response?.rawToolResult?.debug?.graphReportUsed,
     ),
+    focusedRetryUsed: Boolean(
+      debug.focusedRetry?.focusedRetryUsed ??
+      debug.focusedRetryUsed ??
+      response?.rawToolResult?.debug?.focusedRetry?.focusedRetryUsed,
+    ),
+    focusedRetryMs: Number(
+      debug.focusedRetry?.focusedRetryMs ??
+      debug.focusedRetryMs ??
+      0,
+    ),
   };
 }
 

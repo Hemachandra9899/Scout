@@ -127,6 +127,10 @@ export async function webResearch(input: WebResearchInput) {
       maxPagesPerSource: input.maxPagesPerSource,
       maxTotalPages: input.maxTotalPages,
       maxDepth: input.maxDepth,
+      focused: input.focused,
+      maxResources: input.maxResources,
+      maxPages: input.maxPages,
+      timeoutMs: input.timeoutMs,
     });
     return buildResearchResponse(raw);
   }

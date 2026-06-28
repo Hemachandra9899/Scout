@@ -1,0 +1,18 @@
+[
+  {
+    "id": "routing-focused-retry-api-001",
+    "intent": "focused_retry",
+    "description": "Web research retry should use focused smaller-budget retry when critic asks for missing anchors.",
+    "query": "Compare Google Ads API and Meta Marketing API authentication, permissions, and rate limits with citations.",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": [
+      "Google Ads API",
+      "Meta Marketing API",
+      "authentication",
+      "rate"
+    ],
+    "minGroundedRatio": 0.5,
+    "maxLatencyMs": 180000
+  }
+]

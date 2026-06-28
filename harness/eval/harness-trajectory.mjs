@@ -61,6 +61,16 @@ function extractPhase2Signals(response) {
       debug.graph?.reportUsed ??
       ui.graph?.reportUsed ??
       false,
+
+    focusedRetryUsed:
+      debug.focusedRetry?.focusedRetryUsed ??
+      debug.focusedRetryUsed ??
+      false,
+
+    focusedRetryMs:
+      debug.focusedRetry?.focusedRetryMs ??
+      debug.focusedRetryMs ??
+      0,
   };
 }
 

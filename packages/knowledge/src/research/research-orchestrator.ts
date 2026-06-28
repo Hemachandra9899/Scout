@@ -84,6 +84,10 @@ export type ResearchOrchestratorInput = {
   maxPagesPerSource?: number;
   maxTotalPages?: number;
   maxDepth?: number;
+  focused?: boolean;
+  maxResources?: number;
+  maxPages?: number;
+  timeoutMs?: number;
 };
 
 export type ResearchOrchestratorOutput = {
@@ -369,6 +373,14 @@ export class ResearchOrchestrator {
         });
 
         resourcesToCrawl = sourceRelevance.sources;
+      }
+    }
+
+    const focused = Boolean(input.focused);
+    if (focused) {
+      const maxRes = input.maxResources ?? 4;
+      if (resourcesToCrawl.length > maxRes) {
+        resourcesToCrawl = resourcesToCrawl.slice(0, maxRes);
       }
     }
 
@@ -962,6 +974,14 @@ export class ResearchOrchestrator {
             } : {}),
           },
         },
+        ...(focused ? {
+          focusedRetry: {
+            focused: true,
+            maxResources: input.maxResources ?? 4,
+            maxPages: input.maxPages,
+            timeoutMs: input.timeoutMs,
+          },
+        } : {}),
       },
     };
   }

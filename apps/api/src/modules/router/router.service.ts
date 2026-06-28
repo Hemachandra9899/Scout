@@ -64,6 +64,13 @@ const ROUTER_CODING_MAX_TOKENS = Number(
   process.env.ROUTER_CODING_MAX_TOKENS || 900,
 );
 
+const FOCUSED_RETRY_MAX_RESOURCES = Number(
+  process.env.FOCUSED_RETRY_MAX_RESOURCES ?? 4,
+);
+const FOCUSED_RETRY_TIMEOUT_MS = Number(
+  process.env.FOCUSED_RETRY_TIMEOUT_MS ?? 45000,
+);
+
 const memoryManager = new MemoryManager();
 
 async function writeSetupMemories(input: RouterAnswerInput): Promise<number> {
@@ -257,6 +264,59 @@ function routeNeedsMemory(input: {
     default:
       return false;
   }
+}
+
+function claimToText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return String(record.claim ?? record.text ?? record.anchor ?? JSON.stringify(record));
+  }
+  return String(value ?? "");
+}
+
+function shouldRunFocusedRetry(input: {
+  decision: RouterDecision;
+  critic: FaithfulnessCriticResult;
+}): boolean {
+  if (input.decision.tool !== "web_research") return false;
+  if (input.critic.verdict !== "retry") return false;
+
+  const missingAnchors = input.critic.missingAnchors ?? [];
+  const weakClaims = input.critic.weakClaims ?? [];
+  const unsupportedClaims = input.critic.unsupportedClaims ?? [];
+
+  return (
+    missingAnchors.length > 0 ||
+    weakClaims.length > 0 ||
+    unsupportedClaims.length > 0 ||
+    input.critic.supportedRatio < ROUTER_FAITHFULNESS_THRESHOLD
+  );
+}
+
+function buildFocusedRetryQuery(input: {
+  originalQuery: string;
+  critic: FaithfulnessCriticResult;
+}): string {
+  const anchors = [
+    ...(input.critic.missingAnchors ?? []),
+    ...(input.critic.weakClaims ?? []).map(claimToText).slice(0, 3),
+    ...(input.critic.unsupportedClaims ?? []).map(claimToText).slice(0, 3),
+  ]
+    .map((x) => String(x).trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+  if (anchors.length === 0) {
+    return input.originalQuery;
+  }
+
+  return [
+    input.originalQuery,
+    "",
+    "Focused recovery: find reliable evidence only for these missing or weak points:",
+    ...anchors.map((anchor) => `- ${anchor}`),
+  ].join("\n");
 }
 
 function sleep(ms: number) {
@@ -1300,38 +1360,90 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         threshold: ROUTER_FAITHFULNESS_THRESHOLD,
       });
 
-      if (critic.verdict === "retry") {
-        const focusedQuery = [
-          input.query,
-          "",
-          critic.fixHint,
-          "Answer directly and explicitly. Do not return unrelated content.",
-        ].join("\n");
+      let focusedRetryDebug: {
+        focusedRetryUsed: boolean;
+        focusedRetryReason?: string;
+        focusedRetryAnchors?: string[];
+        focusedRetryMaxResources?: number;
+        focusedRetryMs?: number;
+        focusedRetryImproved?: boolean;
+        focusedRetryOriginalScore?: number;
+        focusedRetryFinalScore?: number;
+      } = {
+        focusedRetryUsed: false,
+      };
 
-        result = await withTimeout(
-          webResearch({
-            projectId: input.projectId,
-            userId: input.userId,
-            query: focusedQuery,
-            maxResults: ROUTER_RESEARCH_MAX_RESULTS,
-            maxPagesPerSource: ROUTER_RESEARCH_MAX_PAGES_PER_SOURCE,
-            maxTotalPages: ROUTER_RESEARCH_MAX_TOTAL_PAGES,
-            maxDepth: ROUTER_RESEARCH_MAX_DEPTH,
-            useOrchestrator: true,
-          }),
-          ROUTER_RESEARCH_TIMEOUT_MS,
-          "web_research_retry",
-        );
-
-        answerMarkdown = extractAnswerText(result);
-        evidenceCoverage = extractEvidenceCoverage(result);
-
-        critic = evaluateFaithfulness({
-          query: input.query,
-          answerMarkdown,
-          evidencePack: (result as any).evidencePack,
-          threshold: ROUTER_FAITHFULNESS_THRESHOLD,
+      if (
+        shouldRunFocusedRetry({
+          decision,
+          critic,
+        })
+      ) {
+        const focusedStart = Date.now();
+        const focusedQuery = buildFocusedRetryQuery({
+          originalQuery: input.query,
+          critic,
         });
+
+        const originalScore = critic.score ?? critic.supportedRatio ?? 0;
+
+        try {
+          const retryResult = await withTimeout(
+            webResearch({
+              projectId: input.projectId,
+              userId: input.userId,
+              query: focusedQuery,
+              focused: true,
+              maxResources: FOCUSED_RETRY_MAX_RESOURCES,
+              maxPages: 4,
+              timeoutMs: FOCUSED_RETRY_TIMEOUT_MS,
+              useOrchestrator: true,
+            }),
+            FOCUSED_RETRY_TIMEOUT_MS,
+            "web_research_focused_retry",
+          );
+
+          const retryAnswerText = extractAnswerText(retryResult);
+
+          const retryCritic = evaluateFaithfulness({
+            query: input.query,
+            answerMarkdown: retryAnswerText,
+            evidencePack: (retryResult as any).evidencePack,
+            threshold: ROUTER_FAITHFULNESS_THRESHOLD,
+          });
+
+          const retryScore = retryCritic.score ?? retryCritic.supportedRatio ?? 0;
+          const improved = retryScore >= originalScore && retryCritic.passed;
+
+          if (improved) {
+            result = retryResult;
+            answerMarkdown = retryAnswerText;
+            evidenceCoverage = extractEvidenceCoverage(retryResult);
+            critic = retryCritic;
+          }
+
+          focusedRetryDebug = {
+            focusedRetryUsed: true,
+            focusedRetryReason: critic.fixHint ?? "Critic requested retry.",
+            focusedRetryAnchors: critic.missingAnchors ?? [],
+            focusedRetryMaxResources: FOCUSED_RETRY_MAX_RESOURCES,
+            focusedRetryMs: Date.now() - focusedStart,
+            focusedRetryImproved: improved,
+            focusedRetryOriginalScore: originalScore,
+            focusedRetryFinalScore: improved ? retryScore : originalScore,
+          };
+        } catch {
+          focusedRetryDebug = {
+            focusedRetryUsed: true,
+            focusedRetryReason: "Focused retry failed.",
+            focusedRetryAnchors: critic.missingAnchors ?? [],
+            focusedRetryMaxResources: FOCUSED_RETRY_MAX_RESOURCES,
+            focusedRetryMs: Date.now() - focusedStart,
+            focusedRetryImproved: false,
+            focusedRetryOriginalScore: originalScore,
+            focusedRetryFinalScore: originalScore,
+          };
+        }
       }
 
       if (!critic.passed) {
@@ -1352,7 +1464,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
             evidenceCoverage,
             faithfulness: critic,
           },
-          debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
+          debug: { ...(result as any).debug, focusedRetry: focusedRetryDebug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
         };
       }
 
@@ -1368,7 +1480,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           evidenceCoverage,
           faithfulness: critic,
         },
-        debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
+        debug: { ...(result as any).debug, focusedRetry: focusedRetryDebug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
       };
     } catch (error) {
       const { memory: memResult, timing: memTiming } = await memoryPromise;
