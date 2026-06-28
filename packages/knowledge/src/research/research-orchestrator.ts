@@ -20,6 +20,12 @@ import { buildNewsQueryPlan, isNewsLikeQuery } from "./news-query-planner.js";
 import { rankResourceCandidates, isFreshnessRequired } from "./source-ranker.js";
 import { officialSourceSeedsForQuery } from "./official-source-catalog.js";
 import { seededResourcesFromUrls } from "./seeded-resources.js";
+import {
+  mapWithConcurrency,
+  flatMapWithConcurrency,
+  getResearchParallelism,
+  estimateParallelWaves,
+} from "./bounded-concurrency.js";
 import type {
   EvidencePack,
   RankedResource,
@@ -132,6 +138,16 @@ export type ResearchOrchestratorOutput = {
   debug?: {
     recoveryAttempted: boolean;
     recoveryPlan: unknown;
+    parallel?: {
+      enabled: boolean;
+      maxConcurrency: number;
+      groups: {
+        subqueries: { count: number; waves: number };
+        newsQueries?: { count: number; waves: number };
+        focusedQueries?: { count: number; waves: number };
+        recoveryQueries?: { count: number; waves: number };
+      };
+    };
   };
 };
 
@@ -216,29 +232,33 @@ export class ResearchOrchestrator {
 
     const allResourceBatches: RankedResource[][] = [];
 
-    // Subqueries are independent — plan their resources concurrently.
-    // Promise.all preserves order, and mergeResources() dedups across batches.
-    const subqueryBatches = await Promise.all(
-      subqueries.map((subquery) =>
-        trace
-          .timed(
-            `plan_resources:${subquery.query.slice(0, 40)}`,
-            () =>
-              planResources({
-                query: subquery.query,
-                maxSources: Math.max(5, Math.ceil(maxSources / subqueries.length)),
-                memoryHints: rankingMemories,
-              }),
-            researchConfig.stageTimeoutMs,
-          )
-          .then((resourcePlan) => {
-            for (const resource of resourcePlan.resources) {
-              if (!resource.matchedBy) resource.matchedBy = [];
-              resource.matchedBy.push(`subquery:${subquery.query}`);
-            }
-            return resourcePlan.resources;
-          }),
-      ),
+    const parallelism = getResearchParallelism();
+    let focusedQueryCount = 0;
+
+    // Subqueries are independent — plan their resources with bounded concurrency.
+    // mapWithConcurrency preserves order, and mergeResources() dedups across batches.
+    const subqueryBatches = await mapWithConcurrency(
+      subqueries,
+      parallelism,
+      async (subquery: { query: string; reason: string; priority: number }) => {
+        const resourcePlan = await trace.timed(
+          `plan_resources:${subquery.query.slice(0, 40)}`,
+          () =>
+            planResources({
+              query: subquery.query,
+              maxSources: Math.max(5, Math.ceil(maxSources / subqueries.length)),
+              memoryHints: rankingMemories,
+            }),
+          researchConfig.stageTimeoutMs,
+        );
+
+        for (const resource of resourcePlan.resources) {
+          if (!resource.matchedBy) resource.matchedBy = [];
+          resource.matchedBy.push(`subquery:${subquery.query}`);
+        }
+
+        return resourcePlan.resources;
+      },
     );
 
     allResourceBatches.push(...subqueryBatches);
@@ -248,36 +268,36 @@ export class ResearchOrchestrator {
     if (newsPlan.isNewsQuery) {
       const newsBatchQueries = newsPlan.queries.slice(0, researchConfig.fastMode ? 4 : 6);
 
-      // News subqueries are independent — discover + rank them concurrently.
-      const newsBatches = await Promise.all(
-        newsBatchQueries.map((newsQuery) =>
-          trace
-            .timed(
-              `resources:news:${newsQuery.slice(0, 40)}`,
-              () =>
-                searchResourceCandidates(newsQuery, 5, {
-                  freshnessRequired: isFreshnessRequired(newsQuery),
-                }),
-              researchConfig.stageTimeoutMs,
-            )
-            .then((candidates) => {
-              const ranked = rankResourceCandidates(newsQuery, candidates, {
-                maxSources: Math.max(3, Math.ceil(maxSources / Math.max(newsBatchQueries.length, 1))),
-                minScore: 25,
-                memoryHints: rankingMemories,
-                maxPerDomain: 2,
+      // News subqueries are independent — discover + rank them with bounded concurrency.
+      const newsBatches = await mapWithConcurrency(
+        newsBatchQueries,
+        parallelism,
+        async (newsQuery: string) => {
+          const candidates = await trace.timed(
+            `resources:news:${newsQuery.slice(0, 40)}`,
+            () =>
+              searchResourceCandidates(newsQuery, 5, {
                 freshnessRequired: isFreshnessRequired(newsQuery),
-              });
+              }),
+            researchConfig.stageTimeoutMs,
+          );
 
-              for (const resource of ranked) {
-                if (!resource.matchedBy) resource.matchedBy = [];
-                resource.matchedBy.push(`news:${newsQuery}`);
-                resource.score += 300;
-              }
+          const ranked = rankResourceCandidates(newsQuery, candidates, {
+            maxSources: Math.max(3, Math.ceil(maxSources / Math.max(newsBatchQueries.length, 1))),
+            minScore: 25,
+            memoryHints: rankingMemories,
+            maxPerDomain: 2,
+            freshnessRequired: isFreshnessRequired(newsQuery),
+          });
 
-              return ranked;
-            }),
-        ),
+          for (const resource of ranked) {
+            if (!resource.matchedBy) resource.matchedBy = [];
+            resource.matchedBy.push(`news:${newsQuery}`);
+            resource.score += 300;
+          }
+
+          return ranked;
+        },
       );
 
       allResourceBatches.push(...newsBatches);
@@ -312,30 +332,32 @@ export class ResearchOrchestrator {
         ? newsPlan.queries
         : buildFocusedResearchQueries(input.query);
       const extraQueries = focusedQueries.filter((q) => q.toLowerCase() !== input.query.toLowerCase());
+      focusedQueryCount = extraQueries.length;
 
       if (extraQueries.length > 0) {
-        // Focused fallback queries are independent — plan them concurrently.
-        const extraResourceBatches = await Promise.all(
-          extraQueries.map((focusedQuery) =>
-            trace
-              .timed(
-                `plan_resources:${focusedQuery.slice(0, 40)}`,
-                () =>
-                  planResources({
-                    query: focusedQuery,
-                    maxSources: Math.max(3, Math.ceil(maxSources / Math.max(extraQueries.length, 1))),
-                    memoryHints: rankingMemories,
-                  }),
-                researchConfig.stageTimeoutMs,
-              )
-              .then((batch) => {
-                for (const resource of batch.resources) {
-                  if (!resource.matchedBy) resource.matchedBy = [];
-                  resource.matchedBy.push(`focused:${focusedQuery}`);
-                }
-                return batch.resources;
-              }),
-          ),
+        // Focused fallback queries are independent — plan them with bounded concurrency.
+        const extraResourceBatches = await mapWithConcurrency(
+          extraQueries,
+          parallelism,
+          async (focusedQuery: string) => {
+            const batch = await trace.timed(
+              `plan_resources:${focusedQuery.slice(0, 40)}`,
+              () =>
+                planResources({
+                  query: focusedQuery,
+                  maxSources: Math.max(3, Math.ceil(maxSources / Math.max(extraQueries.length, 1))),
+                  memoryHints: rankingMemories,
+                }),
+              researchConfig.stageTimeoutMs,
+            );
+
+            for (const resource of batch.resources) {
+              if (!resource.matchedBy) resource.matchedBy = [];
+              resource.matchedBy.push(`focused:${focusedQuery}`);
+            }
+
+            return batch.resources;
+          },
         );
 
         const extraMerged = mergeResources(extraResourceBatches);
@@ -520,6 +542,7 @@ export class ResearchOrchestrator {
     }
 
     let recoveryAttempted = false;
+    let recoveryQueryCount = 0;
     let recoveryPlanDebug: unknown = null;
 
     let rerankedEvidence = rerankEvidenceForQuery(
@@ -628,29 +651,32 @@ export class ResearchOrchestrator {
         ]) : []),
       ].filter((q, i, a) => a.indexOf(q) === i).slice(0, 6);
 
-      // Recovery queries are independent — plan them concurrently.
-      const recoveryBatches = await Promise.all(
-        recoveryQueries.map((recoveryQuery) =>
-          trace
-            .timed(
-              `recovery_retry:plan_resources:${recoveryQuery.slice(0, 40)}`,
-              () =>
-                planResources({
-                  query: recoveryQuery,
-                  maxSources: researchConfig.fastMode ? 3 : 5,
-                  memoryHints: rankingMemories,
-                }),
-              researchConfig.stageTimeoutMs,
-            )
-            .then((recoveryBatch) => {
-              for (const resource of recoveryBatch.resources) {
-                if (!resource.matchedBy) resource.matchedBy = [];
-                resource.matchedBy.push(`recovery:${recoveryQuery}`);
-                resource.score += 250;
-              }
-              return recoveryBatch.resources;
-            }),
-        ),
+      recoveryQueryCount = recoveryQueries.length;
+
+      // Recovery queries are independent — plan them with bounded concurrency.
+      const recoveryBatches = await mapWithConcurrency(
+        recoveryQueries,
+        parallelism,
+        async (recoveryQuery: string) => {
+          const recoveryBatch = await trace.timed(
+            `recovery_retry:plan_resources:${recoveryQuery.slice(0, 40)}`,
+            () =>
+              planResources({
+                query: recoveryQuery,
+                maxSources: researchConfig.fastMode ? 3 : 5,
+                memoryHints: rankingMemories,
+              }),
+            researchConfig.stageTimeoutMs,
+          );
+
+          for (const resource of recoveryBatch.resources) {
+            if (!resource.matchedBy) resource.matchedBy = [];
+            resource.matchedBy.push(`recovery:${recoveryQuery}`);
+            resource.score += 250;
+          }
+
+          return recoveryBatch.resources;
+        },
       );
 
       const recoveryResources: RankedResource[] = recoveryBatches.flat();
@@ -908,6 +934,34 @@ export class ResearchOrchestrator {
       debug: {
         recoveryAttempted,
         recoveryPlan: recoveryPlanDebug,
+        parallel: {
+          enabled: parallelism > 1,
+          maxConcurrency: parallelism,
+          groups: {
+            subqueries: {
+              count: subqueries.length,
+              waves: estimateParallelWaves(subqueries.length, parallelism),
+            },
+            ...(newsPlan.isNewsQuery ? {
+              newsQueries: {
+                count: newsPlan.queries.length,
+                waves: estimateParallelWaves(newsPlan.queries.length, parallelism),
+              },
+            } : {}),
+            ...(focusedQueryCount > 0 ? {
+              focusedQueries: {
+                count: focusedQueryCount,
+                waves: estimateParallelWaves(focusedQueryCount, parallelism),
+              },
+            } : {}),
+            ...(recoveryAttempted && recoveryQueryCount > 0 ? {
+              recoveryQueries: {
+                count: recoveryQueryCount,
+                waves: estimateParallelWaves(recoveryQueryCount, parallelism),
+              },
+            } : {}),
+          },
+        },
       },
     };
   }
