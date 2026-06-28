@@ -227,6 +227,38 @@ function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: strin
   };
 }
 
+function routeNeedsMemory(input: {
+  query: string;
+  decision: RouterDecision;
+  hasSetupMessages: boolean;
+}): boolean {
+  if (input.hasSetupMessages) return true;
+
+  switch (input.decision.tool) {
+    case "web_research":
+      return true;
+    case "search_kb":
+      return true;
+    case "github_repo":
+      return isRepoMemoryQuestion(input.query) || isMemoRepoQuery(input.query);
+    case "direct_model":
+      return (
+        input.query.toLowerCase().includes("prefer") ||
+        input.query.toLowerCase().includes("remember") ||
+        input.query.toLowerCase().includes("my style") ||
+        input.query.toLowerCase().includes("as before")
+      );
+    case "query_graph":
+      return (
+        input.query.toLowerCase().includes("remembered repo") ||
+        input.query.toLowerCase().includes("memoized repo") ||
+        input.query.toLowerCase().includes("saved repo")
+      );
+    default:
+      return false;
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -384,6 +416,7 @@ function deterministicNoEvidenceResponse(
   decision: RouterDecision,
   memory: ReturnType<typeof memoryDebug>,
   reason = "The query asks for private, unreleased, future, or unavailable information.",
+  memoryTiming?: MemoryTimingDebug,
 ) {
   const answerMarkdown = [
     "I do not have enough evidence to answer this confidently.",
@@ -429,6 +462,7 @@ function deterministicNoEvidenceResponse(
       query: input.query,
       reason,
       memory,
+      ...(memoryTiming ? { memoryTiming } : {}),
     },
   };
 }
@@ -978,6 +1012,7 @@ function partialResearchTimeoutResponse(
   error: unknown,
   query: string,
   memory: ReturnType<typeof memoryDebug>,
+  memoryTiming?: MemoryTimingDebug,
 ) {
   const reason = error instanceof Error ? error.message : String(error);
   const answerMarkdown = [
@@ -1013,24 +1048,113 @@ function partialResearchTimeoutResponse(
     },
     answer: answerMarkdown,
     error: reason,
-    debug: { memory },
+    debug: { memory, ...(memoryTiming ? { memoryTiming } : {}) },
+  };
+}
+
+type MemoryTimingDebug = {
+  lazy: boolean;
+  routeNeedsMemory: boolean;
+  skipped: boolean;
+  setupWriteMs: number;
+  recallMs: number;
+  reason: string;
+};
+
+async function getMemoryForRoute(input: {
+  projectId: string;
+  userId?: string;
+  query: string;
+  setupMessages?: Array<{ role?: string; content?: string }>;
+  needsMemory: boolean;
+}): Promise<{
+  memory: ReturnType<typeof memoryDebug>;
+  memoryContext: string;
+  timing: MemoryTimingDebug;
+}> {
+  const timing: MemoryTimingDebug = {
+    lazy: true,
+    routeNeedsMemory: input.needsMemory,
+    skipped: false,
+    setupWriteMs: 0,
+    recallMs: 0,
+    reason: "",
+  };
+
+  const hasSetupMessages = Boolean(input.setupMessages?.length);
+
+  if (!input.needsMemory && !hasSetupMessages) {
+    timing.skipped = true;
+    timing.reason = "Route does not require memory and no setup messages were provided.";
+    return {
+      memory: memoryDebug([], 0, input.query),
+      memoryContext: "",
+      timing,
+    };
+  }
+
+  const setupStart = Date.now();
+  let setupWritten = 0;
+  if (hasSetupMessages) {
+    const messages = input.setupMessages ?? [];
+    const drafts = messages.flatMap((message) =>
+      memoryManager.buildExplicitMemoriesFromUserMessage({
+        projectId: input.projectId,
+        userId: input.userId,
+        message: String(message.content ?? ""),
+      }),
+    );
+    if (drafts.length > 0) {
+      setupWritten = await memoryManager.addMany(drafts);
+    }
+  }
+  timing.setupWriteMs = Date.now() - setupStart;
+
+  const recallStart = Date.now();
+  let memories: ScoutMemory[] = [];
+  if (input.needsMemory) {
+    memories = await recallMemories({
+      projectId: input.projectId,
+      userId: input.userId,
+      query: input.query,
+    } as RouterAnswerInput);
+  }
+  timing.recallMs = Date.now() - recallStart;
+
+  timing.skipped = !input.needsMemory;
+  timing.reason = input.needsMemory
+    ? "Route requires memory."
+    : hasSetupMessages
+      ? "Setup memories were written, but recall was not needed for this route."
+      : "Route does not require memory and no setup messages were provided.";
+
+  return {
+    memory: memoryDebug(memories, setupWritten, input.query),
+    memoryContext: buildMemoryContext(memories, input.query),
+    timing,
   };
 }
 
 export async function answerWithRouter(input: RouterAnswerInput) {
-  const setupWritten = await writeSetupMemories(input);
-  const recalledMemories = await recallMemories(input);
-  const memoryContext = buildMemoryContext(recalledMemories, input.query);
-  const memory = memoryDebug(recalledMemories, setupWritten, input.query);
-
   const decision = routeScoutQuery(input.query);
+  const hasSetupMessages = Boolean(input.setupMessages?.length);
+  const needsMemory = routeNeedsMemory({ query: input.query, decision, hasSetupMessages });
+  const memoryPromise = getMemoryForRoute({
+    projectId: input.projectId,
+    userId: input.userId,
+    query: input.query,
+    setupMessages: input.setupMessages,
+    needsMemory,
+  });
 
   if (isClearlyInsufficientEvidenceQuery(input.query)) {
+    const { memory, timing } = await memoryPromise;
     return deterministicNoEvidenceResponse(
       input,
       decision,
       memory,
       "The query asks for private, unreleased, future, or non-uploaded information.",
+      timing,
     );
   }
 
@@ -1135,7 +1259,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       sources: result.sources ?? [],
       rawToolResult: result,
       debug: {
-        memory,
+        memory: (await memoryPromise).memory,
+        memoryTiming: (await memoryPromise).timing,
         memoRepoUsed,
         memoRepoWritten,
         graphifyRepoUsed,
@@ -1227,7 +1352,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
             evidenceCoverage,
             faithfulness: critic,
           },
-          debug: { ...(result as any).debug, memory },
+          debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
         };
       }
 
@@ -1243,14 +1368,16 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           evidenceCoverage,
           faithfulness: critic,
         },
-        debug: { ...(result as any).debug, memory },
+        debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
       };
     } catch (error) {
-      return partialResearchTimeoutResponse(decision, error, input.query, memory);
+      const { memory: memResult, timing: memTiming } = await memoryPromise;
+      return partialResearchTimeoutResponse(decision, error, input.query, memResult, memTiming);
     }
   }
 
   if (decision.tool === "search_kb") {
+    const { memory: memResult, memoryContext: memCtx, timing: memTiming } = await memoryPromise;
     const graphContext = buildProjectGraphContext(input.query);
     const result = await searchKnowledgeBase({
       projectId: input.projectId,
@@ -1291,7 +1418,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         answer: answerMarkdown,
         rawToolResult: result,
         debug: {
-          memory,
+          memory: memResult,
+          memoryTiming: memTiming,
           ...(graphContext.used ? {
             graph: { used: true, reason: graphContext.reason, nodeCount: 0, edgeCount: 0 },
             graphContextUsed: true,
@@ -1311,7 +1439,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       "If the results do NOT contain the information needed to answer the question, say you do not have enough evidence.",
       "Do not make up facts. Do not guess.",
       "",
-      memoryContext,
+      memCtx,
       "",
       graphContext.used ? graphContext.promptContext : "",
       "",
@@ -1402,7 +1530,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       answer: answerMarkdown,
       rawToolResult: result,
       debug: {
-        memory,
+        memory: memResult,
+        memoryTiming: memTiming,
         ...(graphContext.used ? {
           graph: {
             used: graphContext.used,
@@ -1462,7 +1591,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       answer: report.markdown,
       rawToolResult: report,
       debug: {
-        memory,
+        memory: (await memoryPromise).memory,
+        memoryTiming: (await memoryPromise).timing,
         graphContextUsed: true,
         graphReportUsed: true,
         graphReportId: report.reportId,
@@ -1524,7 +1654,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       answer: answerMarkdown,
       rawToolResult: graphResult,
       debug: {
-        memory,
+        memory: (await memoryPromise).memory,
+        memoryTiming: (await memoryPromise).timing,
         repoGraphUsed: grpDebug.repoGraphUsed ?? false,
         graphContextUsed: true,
         graphPathUsed: grpDebug.graphPathUsed ?? false,
@@ -1546,12 +1677,13 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       const llResult = answerReverseLinkedListQuestion();
       return {
         ...llResult,
-        debug: { ...(llResult as any).debug, memory },
+        debug: { ...(llResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
       };
     }
 
+    const { memory: memResult, memoryContext: memCtx, timing: memTiming } = await memoryPromise;
     let answerMarkdown: string;
-    const codingQuery = [memoryContext, input.query].filter(Boolean).join("\n\n");
+    const codingQuery = [memCtx, input.query].filter(Boolean).join("\n\n");
     try {
       answerMarkdown = await callModelService("coding", codingQuery);
     } catch {
@@ -1575,14 +1707,14 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         faithfulness: critic,
       },
       answer: answerMarkdown,
-      debug: { memory },
+      debug: { memory: memResult, memoryTiming: memTiming },
     };
   }
 
   if (decision.tool === "sandbox") {
     const simpleResult = answerSimpleListComputation(input.query);
     if (simpleResult) {
-      return { ...simpleResult, debug: { ...(simpleResult as any).debug, memory } };
+      return { ...simpleResult, debug: { ...(simpleResult as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing } };
     }
 
     const result = await callRlmRuntime(input);
@@ -1607,7 +1739,7 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         evidenceCoverage,
         faithfulness: critic,
       },
-      debug: { ...(result as any).debug, memory },
+      debug: { ...(result as any).debug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
     };
   }
 
