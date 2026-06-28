@@ -1,0 +1,167 @@
+[
+  {
+    "id": "routing-code-compare-arrays-001",
+    "intent": "code",
+    "description": "Compare arrays in Python should route to direct_model, not web research.",
+    "query": "compare these two arrays in python and tell me which values are missing",
+    "expectedTier": 1,
+    "expectedTool": "direct_model",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 45000
+  },
+  {
+    "id": "routing-uploaded-api-key-001",
+    "intent": "kb",
+    "description": "Uploaded file question with API keyword should route to KB, not web.",
+    "query": "what does this api key in my uploaded file do?",
+    "expectedTier": 1,
+    "expectedTool": "search_kb",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 60000
+  },
+  {
+    "id": "routing-github-repo-001",
+    "intent": "github_repo",
+    "description": "GitHub URL should route to github_repo.",
+    "query": "Analyze this repo https://github.com/Hemachandra9899/Scout",
+    "expectedTier": 2,
+    "expectedTool": "github_repo",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 120000
+  },
+  {
+    "id": "routing-memo-repo-001",
+    "intent": "memo_repo",
+    "description": "Memo repo query should route to github_repo memo workflow.",
+    "query": "Memo this repo https://github.com/Hemachandra9899/Scout and remember its architecture",
+    "expectedTier": 2,
+    "expectedTool": "github_repo",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 120000
+  },
+  {
+    "id": "routing-graphify-repo-001",
+    "intent": "graphify_repo",
+    "description": "Graphify repo query should route to github_repo graphify workflow.",
+    "query": "Graphify this repo https://github.com/Hemachandra9899/Scout and build a codebase graph",
+    "expectedTier": 2,
+    "expectedTool": "github_repo",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 180000
+  },
+  {
+    "id": "routing-update-repo-graph-001",
+    "intent": "update_repo_graph",
+    "description": "Update repo graph should route to github_repo incremental graph update.",
+    "query": "Update repo graph for https://github.com/Hemachandra9899/Scout",
+    "expectedTier": 2,
+    "expectedTool": "github_repo",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 180000
+  },
+  {
+    "id": "routing-query-graph-001",
+    "intent": "query_graph",
+    "description": "Repo graph question should route to query_graph.",
+    "query": "Using the repo graph, how does worker connect to RLM runtime and tools?",
+    "expectedTier": 3,
+    "expectedTool": "query_graph",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 90000
+  },
+  {
+    "id": "routing-graph-report-001",
+    "intent": "graph_report",
+    "description": "Graph report query should route to query_graph report branch.",
+    "query": "Generate GRAPH_REPORT.md for the Scout repo graph",
+    "expectedTier": 3,
+    "expectedTool": "query_graph",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 90000
+  },
+  {
+    "id": "routing-latest-news-001",
+    "intent": "web_research",
+    "description": "Latest news requires web research.",
+    "query": "What is the latest important WhatsApp news this week?",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 120000
+  },
+  {
+    "id": "routing-api-docs-001",
+    "intent": "web_research",
+    "description": "External API docs should route to web research.",
+    "query": "Compare Google Ads API and Meta Marketing API authentication and rate limits",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 180000
+  },
+  {
+    "id": "routing-sandbox-compute-001",
+    "intent": "sandbox",
+    "description": "Explicit computation should route to sandbox.",
+    "query": "Calculate the mean after sorting and removing duplicates from [5, 3, 3, 9, 1]",
+    "expectedTier": 3,
+    "expectedTool": "sandbox",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 60000
+  },
+  {
+    "id": "routing-code-linked-list-001",
+    "intent": "code",
+    "description": "Linked list coding question should route to direct_model.",
+    "query": "Write Python code to reverse a linked list and explain time complexity",
+    "expectedTier": 1,
+    "expectedTool": "direct_model",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 45000
+  },
+  {
+    "id": "routing-private-doc-no-evidence-001",
+    "intent": "insufficient_evidence",
+    "description": "Private unavailable document should not web search.",
+    "query": "What does my non-uploaded private document say about next month's unreleased API endpoint?",
+    "expectedTier": 1,
+    "expectedTool": "search_kb",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 60000
+  },
+  {
+    "id": "routing-kb-readme-001",
+    "intent": "kb",
+    "description": "Project README/knowledge query should route to search_kb.",
+    "query": "Using the project knowledge base, summarize the Scout README architecture",
+    "expectedTier": 1,
+    "expectedTool": "search_kb",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 60000
+  },
+  {
+    "id": "routing-typo-graph-report-001",
+    "intent": "graph_report",
+    "description": "Typo-ish graph report query should still route to query_graph if deterministic rules catch enough signal.",
+    "query": "genrate graph report for scout repo graph",
+    "expectedTier": 3,
+    "expectedTool": "query_graph",
+    "mustMention": [],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 90000
+  }
+]
