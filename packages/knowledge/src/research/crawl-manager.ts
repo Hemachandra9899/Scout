@@ -8,6 +8,7 @@ import type { ResourceCrawlTrace } from "./crawl-retry-policy.js";
 import { checkDedupe } from "./crawl-dedupe.js";
 import type { ResourceMemoryHint } from "./memory-ranking.js";
 import { researchConfig } from "./research-config.js";
+import { fetchUrlText } from "./local-fetch.js";
 
 export type CrawlManagerInput = {
   projectId: string;
@@ -326,6 +327,23 @@ export async function crawlResearchSources(
           reason: errMsg,
         });
         break;
+      }
+    }
+
+    if (resourceAcceptedCount === 0 && resource.tier === "official_docs") {
+      const direct = await fetchUrlText(resource.url);
+      if (direct.ok && direct.text) {
+        const directPage: CrawledResearchPage = {
+          title: direct.title ?? resource.title,
+          url: direct.url,
+          markdown: direct.text,
+          depth: 0,
+          source: resource,
+          metadata: { sourceTier: resource.tier, directFetch: true, url: direct.url },
+        };
+        localAcceptedPages.push(directPage);
+        resourceAcceptedCount = 1;
+        resourceTrace.directFetchUsed = true;
       }
     }
 

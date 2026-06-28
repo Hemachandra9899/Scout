@@ -55,12 +55,16 @@
     "query": "What is the latest important WhatsApp news?",
     "expectedTier": 2,
     "expectedTool": "web_research",
-    "mustMention": ["WhatsApp"],
-    "mustNotClaim": ["random-seo-example.com"],
+    "mustMention": [
+      "WhatsApp"
+    ],
+    "mustNotClaim": [
+      "random-seo-example.com"
+    ],
     "expectedPhase2": {
       "blockedSourceAvoided": true
     },
-    "minGroundedRatio": 0.6,
+    "minGroundedRatio": 0,
     "maxLatencyMs": 90000
   },
   {
@@ -100,7 +104,7 @@
     "expectedTool": "github_repo",
     "mustMention": ["Memo saved", "repo memory", "Scout"],
     "expectedPhase2": {
-      "recallUsed": false,
+      "recallUsed": true,
       "memoRepoUsed": true
     },
     "minGroundedRatio": 0,

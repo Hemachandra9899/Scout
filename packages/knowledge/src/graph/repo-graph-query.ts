@@ -48,6 +48,9 @@ export type RepoGraphQueryOutput = {
 };
 
 const STOPWORDS = new Set([
+  "the",
+  "and",
+  "how",
   "using",
   "repo",
   "graph",
@@ -120,7 +123,7 @@ function entityScore(entity: GraphEntity, tokens: string[]): number {
     if (metadata.includes(t)) score += 5;
   }
 
-  if (entity.type === "file") score += 4;
+  if (entity.type === "file") score += 10;
   if (entity.type === "symbol") score += 3;
   if (entity.type === "service") score += 2;
 
@@ -157,13 +160,14 @@ async function getMatchedEntities(projectId: string, tokens: string[]): Promise<
       projectId,
       ...(or.length ? { OR: or } : {}),
     },
-    take: 80,
+    orderBy: { name: "asc" },
+    take: 500,
   });
 
   return entities
     .map((entity) => ({ entity, score: entityScore(entity, tokens) }))
     .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.score - a.score || a.entity.name.localeCompare(b.entity.name))
     .slice(0, 30)
     .map((item) => item.entity);
 }
@@ -187,7 +191,7 @@ async function expandRelations(projectId: string, seedIds: string[], depth: numb
           { targetEntityId: { in: current } },
         ],
       },
-      take: 200,
+      take: 500,
     });
 
     for (const relation of relations) {
@@ -205,11 +209,12 @@ async function expandRelations(projectId: string, seedIds: string[], depth: numb
   const [entities, relations] = await Promise.all([
     prisma.entity.findMany({
       where: { projectId, id: { in: [...seenEntityIds] } },
-      take: 120,
+      orderBy: { name: "asc" },
+      take: 300,
     }),
     prisma.relation.findMany({
       where: { projectId, id: { in: [...seenRelationIds] } },
-      take: 250,
+      take: 500,
     }),
   ]);
 
@@ -261,15 +266,36 @@ function buildGraphPaths(input: {
   return paths.sort((a, b) => b.score - a.score).slice(0, 15);
 }
 
-function renderEntityGroup(title: string, entities: GraphEntity[]): string[] {
+function renderEntityGroup(title: string, entities: GraphEntity[], tokens?: string[]): string[] {
   if (entities.length === 0) return [];
+
+  const sorted = [...entities];
+  if (tokens && tokens.length > 0) {
+    sorted.sort((a, b) => {
+      const scoreA = tokenMatchScore(a, tokens);
+      const scoreB = tokenMatchScore(b, tokens);
+      return scoreB - scoreA || a.name.localeCompare(b.name);
+    });
+  }
 
   return [
     `### ${title}`,
     "",
-    ...entities.slice(0, 12).map((entity) => `- \`${entity.name}\` (${entity.type})`),
+    ...sorted.slice(0, 12).map((entity) => `- \`${entity.name}\` (${entity.type})`),
     "",
   ];
+}
+
+function tokenMatchScore(entity: GraphEntity, tokens: string[]): number {
+  const name = normalize(entity.name);
+  let score = 0;
+  for (const token of tokens) {
+    const t = normalize(token);
+    if (!t) continue;
+    if (name === t) score += 5;
+    else if (name.includes(t)) score += 3;
+  }
+  return score;
 }
 
 function renderRepoGraphAnswer(input: {
@@ -282,6 +308,7 @@ function renderRepoGraphAnswer(input: {
     relations: GraphRelation[];
     score: number;
   }>;
+  tokens?: string[];
 }): string {
   const lines: string[] = [];
 
@@ -317,10 +344,10 @@ function renderRepoGraphAnswer(input: {
   const services = input.entities.filter((entity) => entity.type === "service");
   const deps = input.entities.filter((entity) => entity.type === "dependency");
 
-  lines.push(...renderEntityGroup("Relevant services/packages", services));
-  lines.push(...renderEntityGroup("Relevant files", files));
-  lines.push(...renderEntityGroup("Relevant symbols", symbols));
-  lines.push(...renderEntityGroup("Relevant dependencies", deps));
+  lines.push(...renderEntityGroup("Relevant services/packages", services, input.tokens));
+  lines.push(...renderEntityGroup("Relevant files", files, input.tokens));
+  lines.push(...renderEntityGroup("Relevant symbols", symbols, input.tokens));
+  lines.push(...renderEntityGroup("Relevant dependencies", deps, input.tokens));
 
   lines.push("### Interpretation");
   lines.push("");
@@ -335,7 +362,7 @@ async function getAllEntities(projectId: string): Promise<GraphEntity[]> {
   return prisma.entity.findMany({
     where: { projectId },
     orderBy: { name: "asc" },
-    take: 50,
+    take: 300,
   });
 }
 
@@ -393,6 +420,7 @@ export async function queryRepoGraph(input: {
     entities: expanded.entities,
     relations: expanded.relations,
     paths,
+    tokens,
   });
 
   return {

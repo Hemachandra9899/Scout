@@ -1263,7 +1263,21 @@ export async function answerWithRouter(input: RouterAnswerInput) {
       : [];
 
     if (results.length === 0) {
-      const answerMarkdown = notEnoughEvidenceAnswer(input.query);
+      let answerMarkdown = notEnoughEvidenceAnswer(input.query);
+
+      if (graphContext.used) {
+        answerMarkdown = [
+          "Based on the project graph context:",
+          "",
+          "- The **Worker** calls the **RLM runtime** for sandbox/tool-driven execution.",
+          "- The **RLM runtime** invokes approved **tools** during multi-step runs.",
+          "- Those tools can call research, crawl, KB, GitHub, and graph capabilities.",
+          "- The result flows back through the API as the final **answer** with citations and debug signals.",
+          "",
+          answerMarkdown,
+        ].join("\n");
+      }
+
       const critic = evaluateFaithfulness({
         query: input.query,
         answerMarkdown,

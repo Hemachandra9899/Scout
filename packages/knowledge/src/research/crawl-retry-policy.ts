@@ -24,6 +24,7 @@ export type ResourceCrawlTrace = {
   pagesSkipped: number;
   pagesFailed: number;
   error?: string;
+  directFetchUsed?: boolean;
 };
 
 export function getFallbackMode(

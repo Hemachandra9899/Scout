@@ -3,29 +3,21 @@ import { officialSourceSeedsForQuery } from "../official-source-catalog.js";
 import { seededResourcesFromUrls } from "../seeded-resources.js";
 
 /**
- * Zero-cost fallback provider. When no paid search provider is available (or they
- * are exhausted), this surfaces known official-source URLs for the query directly
- * from the catalog, so the crawler still has trustworthy seeds to fetch.
- *
- * Disabled by default — only active when LOCAL_CRAWL_ENABLED is truthy.
+ * Zero-cost fallback provider. Surfaces known official-source URLs for the
+ * query directly from the catalog, so the crawler has trustworthy seeds to
+ * fetch. Enabled by default; budget controls usage.
  */
-function enabled(): boolean {
-  const v = process.env.LOCAL_CRAWL_ENABLED;
-  return v === "1" || v === "true" || v === "yes";
-}
-
 export class LocalFetchSearchProvider implements SearchProvider {
   readonly name = "local_fetch" as const;
 
   isConfigured(): boolean {
-    return enabled();
+    return true;
   }
 
   async search(input: {
     query: string;
     limit: number;
   }): Promise<SearchProviderResult[]> {
-    if (!enabled()) return [];
 
     const seeds = officialSourceSeedsForQuery(input.query);
     const results: SearchProviderResult[] = [];
