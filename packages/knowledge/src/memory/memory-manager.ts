@@ -29,6 +29,14 @@ function unique(values: Array<string | undefined | null>): string[] {
   return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
 }
 
+const MEMORY_RECALL_MIN_SCORE = Number(
+  process.env.MEMORY_RECALL_MIN_SCORE ?? 0.2,
+);
+
+const MEMORY_RECALL_MAX_CONTEXT = Number(
+  process.env.MEMORY_RECALL_MAX_CONTEXT ?? 8,
+);
+
 function normalizeForKey(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -95,34 +103,38 @@ function scoreMemory(query: string, memory: ScoutMemory): number {
   const q = query.toLowerCase();
   const text = memory.text.toLowerCase();
 
-  const entityScore = memory.entities.some((entity) =>
-    q.includes(entity.toLowerCase())
-  )
-    ? 25
-    : 0;
+  let score = 0;
 
-  const keywordScore = q
+  score += memory.confidence * 0.5;
+
+  if (memory.entities.some((entity) => q.includes(entity.toLowerCase()))) {
+    score += 0.25;
+  }
+
+  const keywordCount = q
     .split(/\s+/)
     .filter((token) => token.length > 3 && text.includes(token)).length;
+  score += Math.min(0.15, keywordCount * 0.03);
 
-  const recencyScore = Math.max(
+  score += Math.max(
     0,
-    10 -
+    0.1 -
       Math.floor(
-        (Date.now() - memory.createdAt.getTime()) / (1000 * 60 * 60 * 24 * 30)
-      )
+        (Date.now() - memory.createdAt.getTime()) / (1000 * 60 * 60 * 24 * 30),
+      ) * 0.01,
   );
 
   const kindBoost =
     memory.kind === "durable_fact"
-      ? 12
+      ? 0.12
       : memory.kind === "source_quality"
-        ? 8
+        ? 0.08
         : memory.kind === "source_failure"
-          ? 6
+          ? 0.06
           : 0;
+  score += kindBoost;
 
-  return memory.confidence * 50 + entityScore + keywordScore * 3 + recencyScore + kindBoost;
+  return Math.min(1, score);
 }
 
 function extractDomains(text: string): string[] {
@@ -246,7 +258,7 @@ export class MemoryManager {
   }
 
   async search(input: ScoutMemorySearchInput): Promise<ScoutMemory[]> {
-    const limit = input.limit ?? 8;
+    const limit = Math.min(input.limit ?? 8, MEMORY_RECALL_MAX_CONTEXT);
 
     const userScopeWhere = input.userId
       ? {
@@ -269,7 +281,12 @@ export class MemoryManager {
 
     return rows
       .map(toScoutMemory)
-      .sort((a, b) => scoreMemory(input.query, b) - scoreMemory(input.query, a))
+      .map((memory) => ({
+        ...memory,
+        score: scoreMemory(input.query, memory),
+      }))
+      .filter((memory) => memory.score >= MEMORY_RECALL_MIN_SCORE)
+      .sort((a, b) => b.score - a.score)
       .slice(0, limit);
   }
 
