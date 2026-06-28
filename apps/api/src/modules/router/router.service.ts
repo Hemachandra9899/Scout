@@ -188,18 +188,58 @@ function buildMemoryContext(memories: ScoutMemory[], query: string): string {
   const injectable = selectInjectableMemories(query, memories);
   if (injectable.length === 0) return "";
 
-  const lines = injectable.map((memory, index) => {
-    return `[M${index + 1}] ${memory.kind}/${memory.scope}: ${memory.text}`;
-  });
+  const preferences = injectable.filter((m) => m.kind === "preference");
+  const sourceHints = injectable.filter((m) =>
+    ["source_quality", "source_failure"].includes(m.kind),
+  );
+  const durableFacts = injectable.filter((m) => m.kind === "durable_fact");
+  const other = injectable.filter(
+    (m) =>
+      !["preference", "source_quality", "source_failure", "durable_fact"].includes(m.kind),
+  );
 
-  return [
-    "RELEVANT MEMORY:",
-    ...lines,
-    "",
-    "Use user preferences only for style or constraints.",
-    "Use source memories only for source trust/ranking.",
-    "Do not treat memory as factual evidence unless it is a cited durable fact.",
-  ].join("\n");
+  const lines: string[] = [];
+
+  lines.push("Relevant memory context:");
+  lines.push("Use this as context/ranking guidance only. Do not cite memory as evidence unless source URLs are provided.");
+
+  if (preferences.length) {
+    lines.push("");
+    lines.push("User/project preferences:");
+    for (const item of preferences.slice(0, 4)) {
+      lines.push(`- ${item.text}`);
+    }
+  }
+
+  if (sourceHints.length) {
+    lines.push("");
+    lines.push("Source guidance:");
+    for (const item of sourceHints.slice(0, 4)) {
+      lines.push(`- ${item.text}`);
+    }
+  }
+
+  if (durableFacts.length) {
+    lines.push("");
+    lines.push("Previously stored durable context:");
+    for (const item of durableFacts.slice(0, 4)) {
+      const urls =
+        Array.isArray(item.sourceUrls) && item.sourceUrls.length
+          ? ` Sources: ${item.sourceUrls.join(", ")}`
+          : " No source URL attached; do not cite as evidence.";
+      lines.push(`- ${item.text}.${urls}`);
+    }
+  }
+
+  if (other.length) {
+    lines.push("");
+    lines.push("Other relevant prior context:");
+    for (const item of other.slice(0, 3)) {
+      lines.push(`- ${item.text}`);
+    }
+  }
+
+  return lines.join("\n").slice(0, 4000);
 }
 
 function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: string, curatorDebug?: Record<string, unknown> | null) {

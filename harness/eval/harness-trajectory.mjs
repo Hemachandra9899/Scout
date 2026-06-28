@@ -95,6 +95,56 @@ function extractPhase2Signals(response) {
 
     analysisAngles:
       debug.routing?.analysisAngles ?? [],
+
+    graphReportExportUsed:
+      Boolean(
+        debug.graphReportExportUsed ??
+        debug.graphReportDownloads?.markdown ??
+        debug.graph?.downloads?.markdown ??
+        response?.ui?.graph?.downloads?.markdown ??
+        response?.rawToolResult?.download?.markdown
+      ),
+
+    graphReportId:
+      debug.graphReportId ??
+      debug.graph?.reportId ??
+      response?.ui?.graph?.reportId ??
+      null,
+
+    graphReportDownloadMarkdown:
+      debug.graphReportDownloads?.markdown ??
+      debug.graph?.downloads?.markdown ??
+      response?.ui?.graph?.downloads?.markdown ??
+      null,
+
+    memoryCuratorUsed:
+      Boolean(
+        debug.memoryCurator?.curatorUsed ??
+        debug.memory?.memoryCuratorUsed ??
+        debug.memory?.curatorUsed ??
+        debug.memoryTiming?.curatorUsed
+      ),
+
+    memoryWrittenCount:
+      Number(
+        debug.memoryCurator?.writtenCount ??
+        debug.memory?.memoryWrittenCount ??
+        debug.memory?.writtenCount ??
+        0
+      ),
+
+    memorySkippedCount:
+      Number(
+        debug.memoryCurator?.skippedCount ??
+        debug.memory?.memorySkippedCount ??
+        debug.memory?.skippedCount ??
+        0
+      ),
+
+    memoryUsedReasons:
+      (debug.memory?.usedMemories ?? [])
+        .map((memory) => memory.reason)
+        .filter(Boolean),
   };
 }
 

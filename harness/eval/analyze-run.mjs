@@ -170,6 +170,8 @@ async function main() {
     repoGraphUsed: 0,
     graphPathUsed: 0,
     graphReportUsed: 0,
+    graphReportExportUsed: 0,
+    memoryCuratorUsed: 0,
     progressEventCount: 0,
   };
   
