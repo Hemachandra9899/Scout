@@ -9,7 +9,10 @@ import {
   buildProjectGraphContext,
   shouldUseProjectGraphContext,
 } from "@rlm-forge/knowledge/graph/project-context-graph.js";
-import { classifyRouteIntent } from "@rlm-forge/knowledge/router/intent-classifier.js";
+import {
+  classifyRouteIntent,
+  routeIntentToDecision,
+} from "@rlm-forge/knowledge/router/intent-classifier.js";
 import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
 import { buildAndPersistRepoGraph } from "@rlm-forge/knowledge";
@@ -590,14 +593,7 @@ function looksLikeUploadedDocQuery(query: string): boolean {
 }
 
 export function routeScoutQuery(query: string): RouterDecision {
-  const intent = classifyRouteIntent(query);
-
-  return {
-    tier: intent.tier,
-    route: intent.route,
-    tool: intent.tool,
-    reason: intent.reason,
-  };
+  return routeIntentToDecision(classifyRouteIntent(query));
 }
 
 function routeDebug(query: string) {
