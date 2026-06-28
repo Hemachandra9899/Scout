@@ -23,6 +23,7 @@ import type {
   GithubRepoInput,
 } from "./tools.schema.js";
 import { buildResearchResponse } from "./research-response-contract.js";
+import type { ScoutProgressSink } from "@rlm-forge/knowledge";
 
 const MODEL_SERVICE_URL =
   process.env.MODEL_SERVICE_URL || "http://model-service:8100";
@@ -116,7 +117,7 @@ export async function planResearchResources(input: PlanResourcesInput) {
   };
 }
 
-export async function webResearch(input: WebResearchInput) {
+export async function webResearch(input: WebResearchInput & { onProgress?: ScoutProgressSink }) {
   if (input.useOrchestrator) {
     const orchestrator = new ResearchOrchestrator();
     const raw = await orchestrator.run({
@@ -131,6 +132,7 @@ export async function webResearch(input: WebResearchInput) {
       maxResources: input.maxResources,
       maxPages: input.maxPages,
       timeoutMs: input.timeoutMs,
+      onProgress: input.onProgress,
     });
     return buildResearchResponse(raw);
   }

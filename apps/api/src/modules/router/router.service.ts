@@ -1335,6 +1335,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
 
   if (decision.tool === "web_research") {
     try {
+      const progressEvents: any[] = [];
+
       let result = await withTimeout(
         webResearch({
           projectId: input.projectId,
@@ -1345,6 +1347,9 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           maxTotalPages: ROUTER_RESEARCH_MAX_TOTAL_PAGES,
           maxDepth: ROUTER_RESEARCH_MAX_DEPTH,
           useOrchestrator: true,
+          onProgress: (event) => {
+            progressEvents.push(event);
+          },
         }),
         ROUTER_RESEARCH_TIMEOUT_MS,
         "web_research",
@@ -1373,6 +1378,8 @@ export async function answerWithRouter(input: RouterAnswerInput) {
         focusedRetryUsed: false,
       };
 
+      let focusedProgressEvents: any[] = [];
+
       if (
         shouldRunFocusedRetry({
           decision,
@@ -1398,6 +1405,9 @@ export async function answerWithRouter(input: RouterAnswerInput) {
               maxPages: 4,
               timeoutMs: FOCUSED_RETRY_TIMEOUT_MS,
               useOrchestrator: true,
+              onProgress: (event) => {
+                focusedProgressEvents.push(event);
+              },
             }),
             FOCUSED_RETRY_TIMEOUT_MS,
             "web_research_focused_retry",
@@ -1464,7 +1474,26 @@ export async function answerWithRouter(input: RouterAnswerInput) {
             evidenceCoverage,
             faithfulness: critic,
           },
-          debug: { ...(result as any).debug, focusedRetry: focusedRetryDebug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
+          debug: {
+            ...(result as any).debug,
+            focusedRetry: focusedRetryDebug,
+            progress: {
+              eventCount: progressEvents.length,
+              events: progressEvents.slice(0, 50),
+              stages: [...new Set(progressEvents.map((event: any) => event.stage))],
+            },
+            ...(focusedProgressEvents.length
+              ? {
+                  focusedRetryProgress: {
+                    eventCount: focusedProgressEvents.length,
+                    events: focusedProgressEvents.slice(0, 50),
+                    stages: [...new Set(focusedProgressEvents.map((event: any) => event.stage))],
+                  },
+                }
+              : {}),
+            memory: (await memoryPromise).memory,
+            memoryTiming: (await memoryPromise).timing,
+          },
         };
       }
 
@@ -1480,7 +1509,26 @@ export async function answerWithRouter(input: RouterAnswerInput) {
           evidenceCoverage,
           faithfulness: critic,
         },
-        debug: { ...(result as any).debug, focusedRetry: focusedRetryDebug, memory: (await memoryPromise).memory, memoryTiming: (await memoryPromise).timing },
+        debug: {
+          ...(result as any).debug,
+          focusedRetry: focusedRetryDebug,
+          progress: {
+            eventCount: progressEvents.length,
+            events: progressEvents.slice(0, 50),
+            stages: [...new Set(progressEvents.map((event: any) => event.stage))],
+          },
+          ...(focusedProgressEvents.length
+            ? {
+                focusedRetryProgress: {
+                  eventCount: focusedProgressEvents.length,
+                  events: focusedProgressEvents.slice(0, 50),
+                  stages: [...new Set(focusedProgressEvents.map((event: any) => event.stage))],
+                },
+              }
+            : {}),
+          memory: (await memoryPromise).memory,
+          memoryTiming: (await memoryPromise).timing,
+        },
       };
     } catch (error) {
       const { memory: memResult, timing: memTiming } = await memoryPromise;

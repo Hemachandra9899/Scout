@@ -170,19 +170,30 @@ async function main() {
     repoGraphUsed: 0,
     graphPathUsed: 0,
     graphReportUsed: 0,
+    progressEventCount: 0,
   };
+  
+  let aggregatedProgressStages = new Set();
 
   for (const trajectory of trajectories) {
     for (const key of Object.keys(phase2Counts)) {
       if (trajectory?.phase2?.[key]) phase2Counts[key] += 1;
     }
+    if (Array.isArray(trajectory?.phase2?.progressStages)) {
+      for (const stage of trajectory.phase2.progressStages) {
+        aggregatedProgressStages.add(stage);
+      }
+    }
   }
 
-  if (Object.values(phase2Counts).some((v) => v > 0)) {
+  if (Object.values(phase2Counts).some((v) => v > 0) || aggregatedProgressStages.size > 0) {
     lines.push("## Phase 2 signals");
     lines.push("");
     for (const [key, count] of Object.entries(phase2Counts)) {
       lines.push(`- ${key}: ${count}`);
+    }
+    if (aggregatedProgressStages.size > 0) {
+      lines.push(`- progressStages: ${[...aggregatedProgressStages].join(", ")}`);
     }
     lines.push("");
   }

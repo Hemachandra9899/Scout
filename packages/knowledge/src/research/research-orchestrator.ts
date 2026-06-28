@@ -31,6 +31,10 @@ import type {
   RankedResource,
   SynthesizedAnswer,
 } from "./source-types.js";
+import {
+  createProgressEmitter,
+  type ScoutProgressSink,
+} from "./progress-events.js";
 
     export type ResearchStageTrace = {
       name: string;
@@ -88,6 +92,7 @@ export type ResearchOrchestratorInput = {
   maxResources?: number;
   maxPages?: number;
   timeoutMs?: number;
+  onProgress?: ScoutProgressSink;
 };
 
 export type ResearchOrchestratorOutput = {
@@ -142,6 +147,14 @@ export type ResearchOrchestratorOutput = {
   debug?: {
     recoveryAttempted: boolean;
     recoveryPlan: unknown;
+    progress?: {
+      eventCount: number;
+      stages: string[];
+      lastStage?: string;
+      lastStatus?: string;
+      durationMs: number;
+      events: import("./progress-events.js").ScoutProgressEvent[];
+    };
     parallel?: {
       enabled: boolean;
       maxConcurrency: number;
@@ -201,6 +214,10 @@ export class ResearchOrchestrator {
 
   async run(input: ResearchOrchestratorInput): Promise<ResearchOrchestratorOutput> {
     const trace = createResearchTrace();
+    const progress = createProgressEmitter({
+      sink: input.onProgress,
+    });
+
     const context = {
       projectId: input.projectId,
       userId: input.userId,
@@ -216,6 +233,15 @@ export class ResearchOrchestrator {
     }, researchConfig.stageTimeoutMs);
 
     const plan = planResult.output!;
+
+    await progress.emit({
+      stage: "planning",
+      status: "completed",
+      message: "Research plan created.",
+      metadata: {
+        subqueryCount: plan.subqueries?.length ?? 0,
+      },
+    });
 
     const memoryResult = await trace.timed("retrieve_memories", () =>
       this.memoryAgent.retrieveForRun(context),
@@ -233,6 +259,12 @@ export class ResearchOrchestrator {
     );
 
     const subqueries = plan.subqueries;
+
+    await progress.emit({
+      stage: "provider_search",
+      status: "started",
+      message: "Searching provider candidates.",
+    });
 
     const allResourceBatches: RankedResource[][] = [];
 
@@ -376,6 +408,15 @@ export class ResearchOrchestrator {
       }
     }
 
+    await progress.emit({
+      stage: "provider_search",
+      status: "completed",
+      message: "Provider search completed.",
+      metadata: {
+        resourceCount: resourcesToCrawl.length,
+      },
+    });
+
     const focused = Boolean(input.focused);
     if (focused) {
       const maxRes = input.maxResources ?? 4;
@@ -489,9 +530,25 @@ export class ResearchOrchestrator {
             data: { report: sourceRelevance.report },
           },
         ],
-        debug: { recoveryAttempted: false, recoveryPlan: null },
+        debug: {
+          recoveryAttempted: false,
+          recoveryPlan: null,
+          progress: {
+            ...progress.summary(),
+            events: progress.events,
+          },
+        },
       };
     }
+
+    await progress.emit({
+      stage: "crawl",
+      status: "started",
+      message: "Fetching and crawling selected sources.",
+      metadata: {
+        resourceCount: resourcesToCrawl.length,
+      },
+    });
 
     const crawl = await trace.timed("crawl", () =>
       crawlResearchSources({
@@ -505,6 +562,16 @@ export class ResearchOrchestrator {
         maxDepth: input.maxDepth ?? 1,
       }),
     researchConfig.stageTimeoutMs);
+
+    await progress.emit({
+      stage: "crawl",
+      status: "completed",
+      message: "Crawl completed.",
+      metadata: {
+        acceptedPages: crawl.trace.acceptedPages,
+        skippedPages: crawl.trace.skippedPages,
+      },
+    });
 
     const documents: Array<{
       documentId: string;
@@ -563,6 +630,12 @@ export class ResearchOrchestrator {
       researchConfig.rerankTopK,
     );
 
+    await progress.emit({
+      stage: "evidence",
+      status: "started",
+      message: "Extracting evidence.",
+    });
+
     let evidencePack = await trace.timed("build_evidence_pack", () =>
       Promise.resolve(buildEvidencePack({
         query: input.query,
@@ -579,6 +652,22 @@ export class ResearchOrchestrator {
         : "",
       apiTemplate,
     ].filter(Boolean).join("\n\n");
+
+    await progress.emit({
+      stage: "evidence",
+      status: "completed",
+      message: "Evidence pack built.",
+      metadata: {
+        claimCount: evidencePack.coverage?.claimCount,
+        supportedClaimCount: evidencePack.coverage?.supportedClaimCount,
+      },
+    });
+
+    await progress.emit({
+      stage: "synthesis",
+      status: "started",
+      message: "Synthesizing grounded answer.",
+    });
 
     const answer = await trace.timed("synthesize", () =>
       Promise.resolve(synthesizeAnswerFromEvidencePack({
@@ -852,6 +941,10 @@ export class ResearchOrchestrator {
         debug: {
           recoveryAttempted,
           recoveryPlan: recoveryPlanDebug,
+          progress: {
+            ...progress.summary(),
+            events: progress.events,
+          },
         },
       };
     }
@@ -982,6 +1075,10 @@ export class ResearchOrchestrator {
             timeoutMs: input.timeoutMs,
           },
         } : {}),
+        progress: {
+          ...progress.summary(),
+          events: progress.events,
+        },
       },
     };
   }

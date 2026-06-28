@@ -71,6 +71,12 @@ function extractPhase2Signals(response) {
       debug.focusedRetry?.focusedRetryMs ??
       debug.focusedRetryMs ??
       0,
+
+    progressEventCount:
+      debug.progress?.eventCount ?? 0,
+
+    progressStages:
+      debug.progress?.stages ?? [],
   };
 }
 

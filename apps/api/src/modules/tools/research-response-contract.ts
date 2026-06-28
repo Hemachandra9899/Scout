@@ -82,6 +82,7 @@ export type ResearchResponseContract = RawOrchestratorOutput & {
     sourceRelevance: Record<string, unknown> | null;
     recoveryAttempted: boolean;
     providers: ProviderUsageSummary;
+    progress: Record<string, unknown> | null;
   };
 };
 
@@ -184,6 +185,7 @@ export function buildResearchResponse(
       sourceRelevance,
       recoveryAttempted,
       providers: summarizeProviderUsage(resourcesPlanned),
+      progress: (raw as any).debug?.progress ?? null,
     },
   };
 }

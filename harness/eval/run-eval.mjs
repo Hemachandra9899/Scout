@@ -535,6 +535,18 @@ function extractPhase2SignalsFromResponse(response) {
       debug.focusedRetryMs ??
       0,
     ),
+    progressEventCount: Number(
+      debug.progress?.eventCount ??
+      response?.ui?.progress?.eventCount ??
+      response?.rawToolResult?.debug?.progress?.eventCount ??
+      0
+    ),
+    progressStages: (
+      debug.progress?.stages ??
+      response?.ui?.progress?.stages ??
+      response?.rawToolResult?.debug?.progress?.stages ??
+      []
+    ),
   };
 }
 
