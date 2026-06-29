@@ -16,6 +16,8 @@ import { AccountMenu } from "../components/AccountMenu";
 import { SettingsModal } from "../components/SettingsModal";
 import { AppsMenu } from "../components/AppsMenu";
 import { ComposerPlusMenu } from "../components/ComposerPlusMenu";
+import { MemoryUploadModal } from "../components/MemoryUploadModal";
+import { DocumentUploadModal } from "../components/DocumentUploadModal";
 import { useProjects, useCreateProject } from "../hooks/useProjects";
 import { useProjectJobs } from "../hooks/useProjectJobs";
 import { useProjectDocuments } from "../hooks/useDocuments";
@@ -165,6 +167,8 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [memoryUploadOpen, setMemoryUploadOpen] = useState(false);
+  const [documentUploadOpen, setDocumentUploadOpen] = useState(false);
 
   const { data: deps = {} } = useQuery({
     queryKey: ["health", "deps"],
@@ -512,7 +516,15 @@ export default function Home() {
                 onClose={() => setPlusMenuOpen(false)}
                 onAction={(action) => {
                   if (action === "agent-mode") {
-                    setQuestion("Use agent executor to " + question || "research this topic");
+                    setQuestion("Use agent executor to " + (question || "research this topic"));
+                  } else if (action === "memory-upload") {
+                    setMemoryUploadOpen(true);
+                  } else if (action === "document-upload") {
+                    setDocumentUploadOpen(true);
+                  } else if (action === "memory-graph") {
+                    setAppsOpen(true);
+                  } else if (action === "repo-graph") {
+                    setAppsOpen(true);
                   }
                 }}
               />
@@ -623,6 +635,21 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
+      <MemoryUploadModal
+        open={memoryUploadOpen}
+        onClose={() => setMemoryUploadOpen(false)}
+        projectId={selectedProjectId || projects[0]?.id || ""}
+      />
+      <DocumentUploadModal
+        open={documentUploadOpen}
+        onClose={() => setDocumentUploadOpen(false)}
+        projectId={selectedProjectId || projects[0]?.id || ""}
+      />
     </main>
   );
 }

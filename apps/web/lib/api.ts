@@ -203,4 +203,15 @@ export const api = {
       report: Report;
       download: { markdown: string; json: string };
     }>(`/graph-reports/${reportId}`),
+
+  uploadMemory: (body: {
+    projectId: string;
+    text: string;
+    kind?: string;
+    scope?: string;
+  }) =>
+    request<{ written: number }>("/memories/upload", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
