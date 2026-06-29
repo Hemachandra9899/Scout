@@ -252,6 +252,12 @@ function extractCoverage(response) {
 }
 
 function extractActualTool(response) {
+  if (response?.ui?.agent?.used) {
+    const agentSteps = safeArray(response?.ui?.agent?.steps);
+    const agentTools = agentSteps.map((s) => s?.tool).filter(Boolean);
+    if (agentTools.length > 0) return String(agentTools[0]);
+  }
+
   const explicit =
     response?.route?.tool ??
     response?.routing?.tool ??
