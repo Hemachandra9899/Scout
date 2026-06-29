@@ -182,6 +182,7 @@ async function main() {
     sandboxStderrTruncated: 0,
     sandboxToolCallLimitHit: 0,
     sandboxToolCallCount: 0,
+    agentExecutorUsed: 0,
     progressEventCount: 0,
   };
   

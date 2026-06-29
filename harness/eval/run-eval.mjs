@@ -651,6 +651,21 @@ function extractPhase2SignalsFromResponse(response) {
       response?.rawToolResult?.debug?.sandboxSafety?.toolCallCount ??
       0
     ),
+    agentExecutorUsed: Boolean(
+      debug.agentExecutorUsed ??
+      debug.agentExecutor?.agentExecutorUsed ??
+      response?.rawToolResult?.debug?.agentExecutorUsed
+    ),
+    agentStepCount: Number(
+      debug.agentExecutor?.stepCount ??
+      response?.rawToolResult?.debug?.agentExecutor?.stepCount ??
+      0
+    ),
+    agentStatus: (
+      debug.agentExecutor?.status ??
+      response?.rawToolResult?.debug?.agentExecutor?.status ??
+      null
+    ),
   };
 }
 

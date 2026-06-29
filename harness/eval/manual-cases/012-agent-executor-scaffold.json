@@ -1,0 +1,18 @@
+{
+  "id": "agent-executor-scaffold-001",
+  "query": "Use Agent Executor to research the current Python version and search the knowledge base for 'Python release history'.",
+  "intent": "research",
+  "expectedTier": 1,
+  "expectedTool": "web_research",
+  "mustMention": ["Python"],
+  "mustNotClaim": [],
+  "referenceAnswer": "The agent executor should invoke web_research and search_kb tools via the deterministic planner, returning a synthesized answer.",
+  "minGroundedRatio": 0,
+  "minCorrectness": 0.5,
+  "minCompleteness": 0.5,
+  "maxLatencyMs": 120000,
+  "expectedPhase2": {
+    "agentExecutorUsed": true,
+    "agentStepCount": 2
+  }
+}

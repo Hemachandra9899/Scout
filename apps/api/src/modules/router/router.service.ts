@@ -16,6 +16,11 @@ import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
 import { buildAndPersistRepoGraph } from "@rlm-forge/knowledge";
 import { generateRepoGraphReport } from "@rlm-forge/knowledge/graph/repo-graph-report.js";
+import {
+  buildDeterministicAgentPlan,
+  executeAgentPlan,
+  type AgentToolName,
+} from "@rlm-forge/knowledge/agent";
 
 export type RouterTier = 1 | 2 | 3;
 
@@ -932,6 +937,63 @@ async function callModelService(
     : new Error(String(lastError));
 }
 
+function agentExecutorEnabled(): boolean {
+  return process.env.AGENT_EXECUTOR_ENABLED === "true";
+}
+
+function looksLikeAgentExecutorRequest(query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    q.includes("use agent executor") ||
+    q.includes("agent mode") ||
+    q.includes("run as agent") ||
+    q.includes("agent scaffold")
+  );
+}
+
+function getAgentExecutorBudget() {
+  return {
+    maxSteps: Number(process.env.AGENT_EXECUTOR_MAX_STEPS ?? 5),
+    maxToolCalls: Number(process.env.AGENT_EXECUTOR_MAX_TOOL_CALLS ?? 8),
+    timeoutMs: Number(process.env.AGENT_EXECUTOR_TIMEOUT_MS ?? 120_000),
+  };
+}
+
+async function executeAgentTool(input: {
+  tool: AgentToolName;
+  stepInput: Record<string, unknown>;
+}): Promise<unknown> {
+  switch (input.tool) {
+    case "search_kb":
+      return searchKnowledgeBase({
+        projectId: String(input.stepInput.projectId),
+        query: String(input.stepInput.query),
+      });
+
+    case "web_research":
+      return webResearch({
+        projectId: String(input.stepInput.projectId),
+        userId: input.stepInput.userId ? String(input.stepInput.userId) : undefined,
+        query: String(input.stepInput.query),
+      });
+
+    case "github_repo":
+      return githubRepo({
+        projectId: String(input.stepInput.projectId),
+        url: String(input.stepInput.url || input.stepInput.query),
+      });
+
+    case "query_graph":
+      return queryGraph({
+        projectId: String(input.stepInput.projectId),
+        query: String(input.stepInput.query),
+      });
+
+    case "sandbox":
+      throw new Error("Sandbox tool execution through AgentExecutor is deferred.");
+  }
+}
+
 async function callRlmRuntime(input: RouterAnswerInput): Promise<unknown> {
   const response = await fetch(`${RLM_RUNTIME_URL}/execute`, {
     method: "POST",
@@ -1120,6 +1182,62 @@ export async function answerWithRouter(input: RouterAnswerInput) {
     setupMessages: input.setupMessages,
     needsMemory,
   });
+
+  if (agentExecutorEnabled() && looksLikeAgentExecutorRequest(input.query)) {
+    const plan = buildDeterministicAgentPlan({
+      objective: input.query,
+      projectId: input.projectId,
+      userId: input.userId,
+    });
+
+    const agentResult = await executeAgentPlan({
+      plan,
+      budget: getAgentExecutorBudget(),
+      executeTool: (tool, stepInput) =>
+        executeAgentTool({ tool, stepInput }),
+    });
+
+    const { memory: memResult, memoryContext: memCtx, timing: memTiming } = await memoryPromise;
+
+    const critic = evaluateFaithfulness({
+      query: input.query,
+      answerMarkdown: agentResult.finalSummary,
+      threshold: ROUTER_FAITHFULNESS_THRESHOLD,
+    });
+
+    return {
+      status: "ok",
+      route: decision,
+      critic,
+      ui: {
+        answerMarkdown: agentResult.finalSummary,
+        citations: [],
+        evidenceCoverage: {},
+        faithfulness: critic,
+        agent: {
+          used: true,
+          status: agentResult.status,
+          plan: agentResult.plan,
+          steps: agentResult.stepResults.map((step) => ({
+            stepId: step.stepId,
+            tool: step.tool,
+            status: step.status,
+            durationMs: step.durationMs,
+            error: step.error,
+          })),
+        },
+      },
+      answer: agentResult.finalSummary,
+      debug: {
+        agentExecutor: agentResult.debug,
+        agentExecutorUsed: true,
+        memory: memResult,
+        memoryTiming: memTiming,
+        memoryCurator: memoryManager.getLastCuratorDebug(),
+        routing: routingDebug,
+      },
+    };
+  }
 
   if (isClearlyInsufficientEvidenceQuery(input.query)) {
     const { memory, timing } = await memoryPromise;
