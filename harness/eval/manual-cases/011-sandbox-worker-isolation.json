@@ -1,0 +1,30 @@
+[
+  {
+    "id": "sandbox-worker-timeout-001",
+    "intent": "computation",
+    "description": "CPU-bound Python code should be terminated by worker timeout.",
+    "query": "Calculate the sum of all integers from 1 to 100 using a for loop in the sandbox and return the result as a final answer.",
+    "expectedTier": 3,
+    "expectedTool": "sandbox",
+    "mustMention": ["5050"],
+    "mustNotClaim": [],
+    "minGroundedRatio": 0,
+    "minCorrectness": 0.8,
+    "minCompleteness": 0.8,
+    "maxLatencyMs": 60000
+  },
+  {
+    "id": "sandbox-worker-stdout-cap-001",
+    "intent": "computation",
+    "description": "Large stdout should be capped and reported via safety debug.",
+    "query": "Use the Python sandbox to print the numbers 1 through 100, each on a new line, and then return the string 'done' via final().",
+    "expectedTier": 3,
+    "expectedTool": "sandbox",
+    "mustMention": ["done"],
+    "mustNotClaim": [],
+    "minGroundedRatio": 0,
+    "minCorrectness": 0.8,
+    "minCompleteness": 0.8,
+    "maxLatencyMs": 60000
+  }
+]
