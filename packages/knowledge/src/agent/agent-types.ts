@@ -61,6 +61,10 @@ export type AgentExecutorTraceEvent = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentExecutorProgressSink = (
+  event: AgentExecutorTraceEvent,
+) => void | Promise<void>;
+
 export type AgentExecutorResult = {
   plan: AgentPlan;
   status: "completed" | "failed" | "budget_exceeded";

@@ -1,5 +1,6 @@
 import type {
   AgentExecutorBudget,
+  AgentExecutorProgressSink,
   AgentExecutorResult,
   AgentExecutorTraceEvent,
   AgentPlan,
@@ -37,10 +38,23 @@ function summarizeStepOutput(output: unknown): string {
   return JSON.stringify(output).slice(0, 500);
 }
 
+function validateDependencies(plan: AgentPlan) {
+  const ids = new Set(plan.steps.map((step) => step.id));
+
+  for (const step of plan.steps) {
+    for (const dep of step.dependsOn ?? []) {
+      if (!ids.has(dep)) {
+        throw new Error(`Step ${step.id} depends on missing step ${dep}`);
+      }
+    }
+  }
+}
+
 export async function executeAgentPlan(input: {
   plan: AgentPlan;
   executeTool: AgentToolExecutor;
   budget?: Partial<AgentExecutorBudget>;
+  onEvent?: AgentExecutorProgressSink;
 }): Promise<AgentExecutorResult> {
   const budget = resolveBudget(input.budget);
   const startedAt = Date.now();
@@ -48,23 +62,31 @@ export async function executeAgentPlan(input: {
   const stepResults: AgentStepResult[] = [];
   let toolCallCount = 0;
 
-  function emit(event: Omit<AgentExecutorTraceEvent, "id" | "timestamp" | "elapsedMs">) {
-    trace.push({
+  async function emit(event: Omit<AgentExecutorTraceEvent, "id" | "timestamp" | "elapsedMs">) {
+    const fullEvent: AgentExecutorTraceEvent = {
       id: `agent-event-${trace.length + 1}`,
       timestamp: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
       ...event,
-    });
+    };
+
+    trace.push(fullEvent);
+
+    if (input.onEvent) {
+      await input.onEvent(fullEvent);
+    }
   }
 
-  emit({
+  validateDependencies(input.plan);
+
+  await emit({
     type: "agent_started",
     message: "Agent executor started.",
     metadata: { planId: input.plan.id, stepCount: input.plan.steps.length },
   });
 
   if (input.plan.steps.length > budget.maxSteps) {
-    emit({
+    await emit({
       type: "budget_exceeded",
       message: "Agent step budget exceeded before execution.",
       metadata: { maxSteps: budget.maxSteps, requestedSteps: input.plan.steps.length },
@@ -87,7 +109,7 @@ export async function executeAgentPlan(input: {
 
   for (const step of input.plan.steps) {
     if (Date.now() - startedAt > budget.timeoutMs) {
-      emit({
+      await emit({
         type: "budget_exceeded",
         message: "Agent timeout budget exceeded.",
         metadata: { timeoutMs: budget.timeoutMs },
@@ -109,7 +131,7 @@ export async function executeAgentPlan(input: {
     }
 
     if (toolCallCount >= budget.maxToolCalls) {
-      emit({
+      await emit({
         type: "budget_exceeded",
         message: "Agent tool-call budget exceeded.",
         metadata: { maxToolCalls: budget.maxToolCalls },
@@ -132,7 +154,7 @@ export async function executeAgentPlan(input: {
 
     const stepStartedAt = Date.now();
 
-    emit({
+    await emit({
       type: "step_started",
       message: `Starting ${step.tool}.`,
       metadata: { stepId: step.id, reason: step.reason },
@@ -155,7 +177,7 @@ export async function executeAgentPlan(input: {
 
       stepResults.push(stepResult);
 
-      emit({
+      await emit({
         type: "step_completed",
         message: `${step.tool} completed.`,
         metadata: { stepId: step.id, durationMs: stepResult.durationMs },
@@ -173,7 +195,7 @@ export async function executeAgentPlan(input: {
 
       stepResults.push(stepResult);
 
-      emit({
+      await emit({
         type: "step_failed",
         message: `${step.tool} failed.`,
         metadata: { stepId: step.id, error: stepResult.error },
@@ -196,7 +218,7 @@ export async function executeAgentPlan(input: {
     }
   }
 
-  emit({ type: "agent_completed", message: "Agent executor completed." });
+  await emit({ type: "agent_completed", message: "Agent executor completed." });
 
   const summaries = stepResults
     .filter((result) => result.status === "completed")
