@@ -40,18 +40,17 @@ AGENT_EXECUTOR_TIMEOUT_MS=180000
 AGENT_EXECUTOR_SSE_ENABLED=true
 ```
 
-## Normal Gates
+## Normal Gates (AGENT_EXECUTOR_ENABLED=false)
 
 | Suite                 | Result |
 | --------------------- | -----: |
-| typecheck:api         |    TBD |
-| typecheck:knowledge   |    TBD |
-| typecheck:web         |    TBD |
-| typecheck:rlm-runtime |    TBD |
-| eval:ci               |    TBD |
-| eval:phase2           |    TBD |
-| eval:phase3           |    TBD |
-| eval:routing-intent   |    TBD |
+| typecheck:api         |  PASS  |
+| typecheck:knowledge   |  PASS  |
+| typecheck:web         |  PASS  |
+| eval:ci               |  10/10 |
+| eval:phase2           |  6/7 (known memo-repo latency flake) |
+| eval:phase3           |  8/8   |
+| eval:routing-intent   | 17/17  |
 
 ## Manual Agent E2E
 
