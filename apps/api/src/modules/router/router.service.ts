@@ -4,6 +4,12 @@ import {
   githubRepo,
   queryGraph,
 } from "../tools/tools.service.js";
+import {
+  agentExecutorEnabled,
+  getAgentExecutorBudget,
+  looksLikeAgentExecutorRequest,
+  executeAgentTool,
+} from "../agents/agent-tool-adapter.js";
 import { evaluateFaithfulness, type FaithfulnessCriticResult } from "./faithfulness-critic.js";
 import {
   buildProjectGraphContext,
@@ -19,7 +25,6 @@ import { generateRepoGraphReport } from "@rlm-forge/knowledge/graph/repo-graph-r
 import {
   buildDeterministicAgentPlan,
   executeAgentPlan,
-  type AgentToolName,
 } from "@rlm-forge/knowledge/agent";
 
 export type RouterTier = 1 | 2 | 3;
@@ -937,62 +942,9 @@ async function callModelService(
     : new Error(String(lastError));
 }
 
-function agentExecutorEnabled(): boolean {
-  return process.env.AGENT_EXECUTOR_ENABLED === "true";
-}
-
-function looksLikeAgentExecutorRequest(query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    q.includes("use agent executor") ||
-    q.includes("agent mode") ||
-    q.includes("run as agent") ||
-    q.includes("agent scaffold")
-  );
-}
-
-function getAgentExecutorBudget() {
-  return {
-    maxSteps: Number(process.env.AGENT_EXECUTOR_MAX_STEPS ?? 5),
-    maxToolCalls: Number(process.env.AGENT_EXECUTOR_MAX_TOOL_CALLS ?? 8),
-    timeoutMs: Number(process.env.AGENT_EXECUTOR_TIMEOUT_MS ?? 120_000),
-  };
-}
-
-async function executeAgentTool(input: {
-  tool: AgentToolName;
-  stepInput: Record<string, unknown>;
-}): Promise<unknown> {
-  switch (input.tool) {
-    case "search_kb":
-      return searchKnowledgeBase({
-        projectId: String(input.stepInput.projectId),
-        query: String(input.stepInput.query),
-      });
-
-    case "web_research":
-      return webResearch({
-        projectId: String(input.stepInput.projectId),
-        userId: input.stepInput.userId ? String(input.stepInput.userId) : undefined,
-        query: String(input.stepInput.query),
-      });
-
-    case "github_repo":
-      return githubRepo({
-        projectId: String(input.stepInput.projectId),
-        url: String(input.stepInput.url || input.stepInput.query),
-      });
-
-    case "query_graph":
-      return queryGraph({
-        projectId: String(input.stepInput.projectId),
-        query: String(input.stepInput.query),
-      });
-
-    case "sandbox":
-      throw new Error("Sandbox tool execution through AgentExecutor is deferred.");
-  }
-}
+// agentExecutorEnabled, looksLikeAgentExecutorRequest,
+// getAgentExecutorBudget, executeAgentTool moved to
+// ../agents/agent-tool-adapter.ts
 
 async function callRlmRuntime(input: RouterAnswerInput): Promise<unknown> {
   const response = await fetch(`${RLM_RUNTIME_URL}/execute`, {

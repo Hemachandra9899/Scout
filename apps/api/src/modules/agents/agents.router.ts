@@ -2,7 +2,6 @@ import type { FastifyInstance } from "fastify";
 import {
   buildDeterministicAgentPlan,
   executeAgentPlan,
-  type AgentToolName,
 } from "@rlm-forge/knowledge/agent";
 import {
   agentRunParamsSchema,
@@ -14,18 +13,15 @@ import {
   getAgentRun,
   updateAgentRun,
 } from "./agent-runs.store.js";
-
-function getAgentExecutorBudget() {
-  return {
-    maxSteps: Number(process.env.AGENT_EXECUTOR_MAX_STEPS ?? 6),
-    maxToolCalls: Number(process.env.AGENT_EXECUTOR_MAX_TOOL_CALLS ?? 10),
-    timeoutMs: Number(process.env.AGENT_EXECUTOR_TIMEOUT_MS ?? 180000),
-  };
-}
+import {
+  agentExecutorEnabled,
+  getAgentExecutorBudget,
+  executeAgentTool,
+} from "./agent-tool-adapter.js";
 
 export async function agentsRouter(app: FastifyInstance) {
   app.post("/agents/runs", async (req, reply) => {
-    if (process.env.AGENT_EXECUTOR_ENABLED !== "true") {
+    if (!agentExecutorEnabled()) {
       reply.code(403);
       return {
         error: "Agent executor is disabled.",
@@ -58,8 +54,8 @@ export async function agentsRouter(app: FastifyInstance) {
           onEvent: (event) => {
             appendAgentRunEvent(run.id, event);
           },
-          executeTool: async (tool: AgentToolName, stepInput) => {
-            throw new Error(`Agent tool adapter not wired yet for ${tool}`);
+          executeTool: async (tool, stepInput) => {
+            return executeAgentTool({ tool, stepInput });
           },
         });
 
