@@ -316,7 +316,11 @@ memoRepoUsed (debug.memoRepoUsed)
 | 2.3   | Bounded evidence recovery                   | Complete |
 | 2.4   | Lightweight project/entity graph            | Complete |
 | 2.5   | Memo Repo / Remember Repo memory            | Complete |
-| 3.0   | Graphify/Graphiti-style repo graph          | Next     |
+| 3.0   | Graphify/Graphiti-style repo graph          | Complete |
+| 9.0   | Agent executor scaffold                     | Complete |
+| 9.5   | Model service NVIDIA dep fix                | Complete |
+| 9.6   | Reproducible E2E eval stack                 | Complete |
+| 10.0  | Agent executor v2 (multi-step + SSE)        | Current  |
 
 ## Design Principles
 
