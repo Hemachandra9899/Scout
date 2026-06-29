@@ -1,4 +1,5 @@
 import { prisma } from "@rlm-forge/database/prisma.js";
+import { deterministicRerank } from "../rerank/deterministic-reranker.js";
 
 type GraphEntity = {
   id: string;
@@ -146,7 +147,7 @@ function relationWeight(relationType: string): number {
   return RELATION_WEIGHTS[relationType] ?? 1;
 }
 
-async function getMatchedEntities(projectId: string, tokens: string[]): Promise<GraphEntity[]> {
+async function getMatchedEntities(projectId: string, tokens: string[], query: string): Promise<GraphEntity[]> {
   const or =
     tokens.length > 0
       ? tokens.flatMap((token) => [
@@ -164,12 +165,45 @@ async function getMatchedEntities(projectId: string, tokens: string[]): Promise<
     take: 500,
   });
 
-  return entities
-    .map((entity) => ({ entity, score: entityScore(entity, tokens) }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.entity.name.localeCompare(b.entity.name))
-    .slice(0, 30)
-    .map((item) => item.entity);
+  const candidates = entities.map((entity) => {
+    const score = entityScore(entity, tokens);
+    return {
+      id: entity.id,
+      title: entity.name,
+      text: [
+        entity.name,
+        entity.type,
+        entity.description ?? "",
+        JSON.stringify(entity.metadata ?? {}),
+      ].join("\n"),
+      sourceType: entity.type,
+      baseScore: score,
+      metadata: {
+        type: entity.type,
+        name: entity.name,
+      },
+    };
+  });
+
+  const { results } = deterministicRerank({
+    query,
+    candidates,
+    surface: "repo_graph",
+    topK: 40,
+  });
+
+  const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+  return results
+    .map((res) => {
+      const entity = entityById.get(res.id);
+      if (!entity) return undefined;
+      return {
+        ...entity,
+        metadata: entity.metadata as unknown,
+      } as GraphEntity;
+    })
+    .filter((e): e is GraphEntity => e !== undefined)
+    .slice(0, 30);
 }
 
 async function expandRelations(projectId: string, seedIds: string[], depth: number) {
@@ -373,7 +407,7 @@ export async function queryRepoGraph(input: {
 }): Promise<RepoGraphQueryOutput> {
   const depth = input.depth ?? 2;
   const tokens = graphQueryTokens(input.query);
-  let matched = await getMatchedEntities(input.projectId, tokens);
+  let matched = await getMatchedEntities(input.projectId, tokens, input.query);
 
   // Fallback: return top entities when token search has no matches
   if (matched.length === 0) {

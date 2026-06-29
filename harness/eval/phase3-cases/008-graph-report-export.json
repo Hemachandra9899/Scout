@@ -12,7 +12,8 @@
   ],
   "mustNotClaim": [],
   "expectedPhase2": {
-    "graphReportUsed": true
+    "graphReportUsed": true,
+    "graphReportExportUsed": true
   },
   "minGroundedRatio": 0,
   "maxLatencyMs": 90000

@@ -64,7 +64,15 @@
     "./graph/repo-graph-report": "./src/graph/repo-graph-report.js",
     "./graph/repo-graph-report.js": "./src/graph/repo-graph-report.js",
     "./router/intent-classifier": "./src/router/intent-classifier.js",
-    "./router/intent-classifier.js": "./src/router/intent-classifier.js"
+    "./router/intent-classifier.js": "./src/router/intent-classifier.js",
+    "./rerank": "./src/rerank/index.js",
+    "./rerank/index.js": "./src/rerank/index.js",
+    "./rerank/reranker-types": "./src/rerank/reranker-types.js",
+    "./rerank/reranker-types.js": "./src/rerank/reranker-types.js",
+    "./rerank/deterministic-reranker": "./src/rerank/deterministic-reranker.js",
+    "./rerank/deterministic-reranker.js": "./src/rerank/deterministic-reranker.js",
+    "./rerank/llm-reranker": "./src/rerank/llm-reranker.js",
+    "./rerank/llm-reranker.js": "./src/rerank/llm-reranker.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",

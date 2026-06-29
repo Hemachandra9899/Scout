@@ -8,6 +8,7 @@ import type {
 import type { EvidenceItem, EvidencePack } from "../research/source-types.js";
 import { curateAndWriteMemories } from "./memory-curator.js";
 import type { MemoryCuratorResult } from "./memory-curator.js";
+import { deterministicRerank } from "../rerank/deterministic-reranker.js";
 
 type CrawlFailureForMemory = {
   title?: string;
@@ -279,15 +280,47 @@ export class MemoryManager {
       take: Math.max(limit * 5, 25),
     });
 
-    return rows
-      .map(toScoutMemory)
-      .map((memory) => ({
-        ...memory,
-        score: scoreMemory(input.query, memory),
-      }))
-      .filter((memory) => memory.score >= MEMORY_RECALL_MIN_SCORE)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+    const memories = rows.map(toScoutMemory);
+    const candidates = memories.map((memory) => {
+      const metadata = memory.metadata as Record<string, unknown> | null;
+      return {
+        id: memory.id,
+        title: `${memory.kind}:${memory.scope}`,
+        text: memory.text,
+        sourceType: memory.kind,
+        baseScore: memory.confidence ?? 0.7,
+        metadata: {
+          ...(metadata ?? {}),
+          kind: memory.kind,
+          scope: memory.scope,
+          tier: metadata?.tier,
+          confidence: memory.confidence,
+        },
+      };
+    });
+
+    const { results, debug } = deterministicRerank({
+      query: input.query,
+      candidates,
+      surface: "memory",
+      topK: limit,
+    });
+
+    // Save debug on instance for tracking if needed, or pass it up
+    (this as any).lastSearchDebug = debug;
+
+    const memoryById = new Map(memories.map((m) => [m.id, m]));
+    return results
+      .map((result) => {
+        const memory = memoryById.get(result.id);
+        if (!memory) return null;
+        return {
+          ...memory,
+          score: result.finalScore,
+          rerankReason: result.reason,
+        };
+      })
+      .filter((m): m is ScoutMemory & { score: number; rerankReason: string } => m !== null && m.score >= MEMORY_RECALL_MIN_SCORE);
   }
 
   buildExplicitMemoriesFromUserMessage(input: {

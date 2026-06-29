@@ -172,6 +172,7 @@ async function main() {
     graphReportUsed: 0,
     graphReportExportUsed: 0,
     memoryCuratorUsed: 0,
+    rerankerUsed: 0,
     progressEventCount: 0,
   };
   

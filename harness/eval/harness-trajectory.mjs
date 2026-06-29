@@ -145,6 +145,31 @@ function extractPhase2Signals(response) {
       (debug.memory?.usedMemories ?? [])
         .map((memory) => memory.reason)
         .filter(Boolean),
+
+    rerankerUsed:
+      Boolean(
+        debug.rerank?.rerankerUsed ??
+        debug.retrieval?.rerank?.rerankerUsed ??
+        debug.memory?.rerank?.rerankerUsed ??
+        debug.graph?.rerank?.rerankerUsed ??
+        response?.rawToolResult?.debug?.rerank?.rerankerUsed
+      ),
+
+    rerankerKind:
+      debug.rerank?.rerankerKind ??
+      debug.retrieval?.rerank?.rerankerKind ??
+      debug.memory?.rerank?.rerankerKind ??
+      debug.graph?.rerank?.rerankerKind ??
+      null,
+
+    rerankedCount:
+      Number(
+        debug.rerank?.outputCount ??
+        debug.retrieval?.rerank?.outputCount ??
+        debug.memory?.rerank?.outputCount ??
+        debug.graph?.rerank?.outputCount ??
+        0
+      ),
   };
 }
 
