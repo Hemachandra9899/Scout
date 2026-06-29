@@ -86,7 +86,9 @@
     "./agent": "./src/agent/index.js",
     "./agent/index.js": "./src/agent/index.js",
     "./agent/agent-types": "./src/agent/agent-types.js",
-    "./agent/agent-types.js": "./src/agent/agent-types.js"
+    "./agent/agent-types.js": "./src/agent/agent-types.js",
+    "./agent/deterministic-planner": "./src/agent/deterministic-planner.js",
+    "./agent/deterministic-planner.js": "./src/agent/deterministic-planner.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",
