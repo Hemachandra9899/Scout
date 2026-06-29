@@ -188,6 +188,43 @@ function extractPhase2Signals(response) {
         debug.cache?.fetchCacheHit ??
         response?.rawToolResult?.debug?.cache?.fetchCacheHit
       ),
+
+    sandboxTimedOut:
+      Boolean(
+        debug.sandboxSafety?.timedOut ??
+        response?.rawToolResult?.debug?.sandboxSafety?.timedOut
+      ),
+
+    sandboxKilled:
+      Boolean(
+        debug.sandboxSafety?.killed ??
+        response?.rawToolResult?.debug?.sandboxSafety?.killed
+      ),
+
+    sandboxStdoutTruncated:
+      Boolean(
+        debug.sandboxSafety?.stdoutTruncated ??
+        response?.rawToolResult?.debug?.sandboxSafety?.stdoutTruncated
+      ),
+
+    sandboxStderrTruncated:
+      Boolean(
+        debug.sandboxSafety?.stderrTruncated ??
+        response?.rawToolResult?.debug?.sandboxSafety?.stderrTruncated
+      ),
+
+    sandboxToolCallLimitHit:
+      Boolean(
+        debug.sandboxSafety?.toolCallLimitHit ??
+        response?.rawToolResult?.debug?.sandboxSafety?.toolCallLimitHit
+      ),
+
+    sandboxToolCallCount:
+      Number(
+        debug.sandboxSafety?.toolCallCount ??
+        response?.rawToolResult?.debug?.sandboxSafety?.toolCallCount ??
+        0
+      ),
   };
 }
 

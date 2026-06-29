@@ -176,6 +176,12 @@ async function main() {
     cacheEnabled: 0,
     searchCacheHit: 0,
     fetchCacheHit: 0,
+    sandboxTimedOut: 0,
+    sandboxKilled: 0,
+    sandboxStdoutTruncated: 0,
+    sandboxStderrTruncated: 0,
+    sandboxToolCallLimitHit: 0,
+    sandboxToolCallCount: 0,
     progressEventCount: 0,
   };
   

@@ -18,14 +18,26 @@ import type {
   AnswerSource,
   ChatMessage,
   ExecuteRequest,
+  PythonExecutionResult,
+  RlmRunDebug,
   RlmRunResult,
   RlmStep,
+  SandboxBudget,
   SubAgentHandler,
   ToolHandler,
 } from "../types.ts";
 
 const DEFAULT_MAX_STEPS = 5;
 const DEFAULT_MAX_DEPTH = 2;
+
+function getSandboxBudget(): SandboxBudget {
+  return {
+    timeoutMs: Number(Deno.env.get("RLM_SANDBOX_TIMEOUT_MS") ?? 30_000),
+    maxStdoutChars: Number(Deno.env.get("RLM_SANDBOX_MAX_STDOUT_CHARS") ?? 20_000),
+    maxStderrChars: Number(Deno.env.get("RLM_SANDBOX_MAX_STDERR_CHARS") ?? 10_000),
+    maxToolCalls: Number(Deno.env.get("RLM_SANDBOX_MAX_TOOL_CALLS") ?? 12),
+  };
+}
 
 const SYSTEM_PROMPT = `
 You are Scout's async Python executor.
@@ -238,6 +250,7 @@ async function tryToolFirstPath(input: {
   subAgentHandler: SubAgentHandler;
   toolHandler: ToolHandler;
   sandbox: PythonSandbox;
+  budget: SandboxBudget;
 }): Promise<{ execution: PythonExecutionResult; step: RlmStep } | null> {
   let code = "";
   if (input.fastIntent.intent === "github_repo") {
@@ -250,7 +263,7 @@ async function tryToolFirstPath(input: {
     return null;
   }
   try {
-    const execution = await input.sandbox.execute(code, input.subAgentHandler, input.toolHandler);
+    const execution = await input.sandbox.execute(code, { budget: input.budget, subAgentHandler: input.subAgentHandler, toolHandler: input.toolHandler });
     if (execution.finalCalled && !execution.error && execution.final !== null) {
       return {
         execution,
@@ -426,12 +439,14 @@ export class RlmLoop {
       let lastCritic: AnswerCriticResult | null = null;
 
       if (depth === 0 && fastIntent && fastIntent.answerMode === "fast") {
+        const sandboxBudget = getSandboxBudget();
         const fastResult = await tryToolFirstPath({
           fastIntent,
           query: normalizedQuery,
           subAgentHandler,
           toolHandler,
           sandbox: this.sandbox,
+          budget: sandboxBudget,
         });
         if (fastResult) {
           const { execution, step } = fastResult;
@@ -470,7 +485,7 @@ export class RlmLoop {
                   steps,
                   error: null,
                   critic: lastCritic ?? undefined,
-                  debug: { criticRetriesUsed, criticPassed: lastCritic?.passed, criticScore: lastCritic?.score, criticReason: lastCritic?.reason },
+                   debug: { criticRetriesUsed, criticPassed: lastCritic?.passed, criticScore: lastCritic?.score, criticReason: lastCritic?.reason, sandboxSafety: execution?.safety },
                 };
               }
             } else {
@@ -514,10 +529,10 @@ export class RlmLoop {
         const rawCode = await this.modelClient.chatCoding(messages);
         const generatedCode = sanitizeGeneratedPython(rawCode);
 
+        const sandboxBudget = getSandboxBudget();
         const execution = await this.sandbox.execute(
           generatedCode,
-          subAgentHandler,
-          toolHandler
+          { budget: sandboxBudget }
         );
 
         for (const tool of execution.toolCalls ?? []) {
@@ -584,7 +599,7 @@ export class RlmLoop {
             steps,
             error: null,
             critic: lastCritic ?? undefined,
-            debug: { toolCallCount: toolsCalled.size, finalRejectedCount: 0, criticRetriesUsed, criticPassed: lastCritic?.passed, criticScore: lastCritic?.score, criticReason: lastCritic?.reason },
+            debug: { toolCallCount: toolsCalled.size, finalRejectedCount: 0, criticRetriesUsed, criticPassed: lastCritic?.passed, criticScore: lastCritic?.score, criticReason: lastCritic?.reason, sandboxSafety: execution.safety },
           };
         }
       }

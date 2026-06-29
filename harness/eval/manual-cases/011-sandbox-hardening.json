@@ -1,0 +1,14 @@
+{
+  "id": "sandbox-hardening-001",
+  "query": "Calculate 7! (factorial of 7) by writing a loop, then use search_kb to look up each integer from 1 to 7 and count the number of search results, returning both the factorial and the lookup count.",
+  "intent": "computation",
+  "expectedTier": 3,
+  "expectedTool": "sandbox",
+  "mustMention": ["5040"],
+  "mustNotClaim": [],
+  "referenceAnswer": "7! = 5040. The sandbox should complete the factorial computation and call search_kb up to 7 times within the tool-call budget, returning both the factorial result and the count of successful lookups.",
+  "minGroundedRatio": 0,
+  "minCorrectness": 0.8,
+  "minCompleteness": 0.8,
+  "maxLatencyMs": 60000
+}
