@@ -173,6 +173,9 @@ async function main() {
     graphReportExportUsed: 0,
     memoryCuratorUsed: 0,
     rerankerUsed: 0,
+    cacheEnabled: 0,
+    searchCacheHit: 0,
+    fetchCacheHit: 0,
     progressEventCount: 0,
   };
   

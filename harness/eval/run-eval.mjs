@@ -614,6 +614,18 @@ function extractPhase2SignalsFromResponse(response) {
       debug.graph?.rerank?.outputCount ??
       0
     ),
+    cacheEnabled: Boolean(
+      debug.cache?.enabled ??
+      response?.rawToolResult?.debug?.cache?.enabled
+    ),
+    searchCacheHit: Boolean(
+      debug.cache?.searchCacheHit ??
+      response?.rawToolResult?.debug?.cache?.searchCacheHit
+    ),
+    fetchCacheHit: Boolean(
+      debug.cache?.fetchCacheHit ??
+      response?.rawToolResult?.debug?.cache?.fetchCacheHit
+    ),
   };
 }
 

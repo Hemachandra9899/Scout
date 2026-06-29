@@ -1,28 +1,41 @@
 import { prisma } from "@rlm-forge/database/prisma.js";
+import { cacheWrap, graphReportCacheKey, CACHE_GRAPH_REPORT_TTL_MS } from "@rlm-forge/knowledge/cache/index.js";
 
 export async function getLatestGraphReport(input: { projectId: string }) {
-  return prisma.report.findFirst({
-    where: {
-      projectId: input.projectId,
-      metadata: {
-        path: ["source"],
-        equals: "repo_graph_report",
+  const key = graphReportCacheKey(input);
+  const { value } = await cacheWrap(
+    key,
+    () => prisma.report.findFirst({
+      where: {
+        projectId: input.projectId,
+        metadata: {
+          path: ["source"],
+          equals: "repo_graph_report",
+        },
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    }),
+    CACHE_GRAPH_REPORT_TTL_MS,
+  );
+  return value;
 }
 
 export async function getGraphReportById(input: { reportId: string }) {
-  return prisma.report.findFirst({
-    where: {
-      id: input.reportId,
-      metadata: {
-        path: ["source"],
-        equals: "repo_graph_report",
+  const key = graphReportCacheKey(input);
+  const { value } = await cacheWrap(
+    key,
+    () => prisma.report.findFirst({
+      where: {
+        id: input.reportId,
+        metadata: {
+          path: ["source"],
+          equals: "repo_graph_report",
+        },
       },
-    },
-  });
+    }),
+    CACHE_GRAPH_REPORT_TTL_MS,
+  );
+  return value;
 }
 
 export function graphReportFilename(report?: { title?: string }) {

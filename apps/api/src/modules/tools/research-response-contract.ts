@@ -83,6 +83,11 @@ export type ResearchResponseContract = RawOrchestratorOutput & {
     recoveryAttempted: boolean;
     providers: ProviderUsageSummary;
     progress: Record<string, unknown> | null;
+    cache: {
+      enabled: boolean;
+      searchCacheHit: boolean;
+      fetchCacheHit: boolean;
+    };
   };
 };
 
@@ -92,6 +97,12 @@ export function buildResearchResponse(
   const { evidencePack, answer, crawlTrace, skippedCrawls, resourcesPlanned, memories } = raw;
 
   const warnings: string[] = [];
+
+  const searchCacheHit = (raw.resourcesPlanned ?? []).some((r) => {
+    const meta = r.metadata as Record<string, unknown> | undefined;
+    const searchTrace = meta?.searchTrace as Record<string, unknown> | undefined;
+    return searchTrace?.cacheHit === true;
+  });
 
   const recoveryAttempted = (raw.researchTrace ?? []).some((stage) =>
     String(stage.name ?? "").toLowerCase().includes("recovery_retry"),
@@ -186,6 +197,11 @@ export function buildResearchResponse(
       recoveryAttempted,
       providers: summarizeProviderUsage(resourcesPlanned),
       progress: (raw as any).debug?.progress ?? null,
+      cache: {
+        enabled: process.env.SCOUT_CACHE_ENABLED !== "false",
+        searchCacheHit,
+        fetchCacheHit: false,
+      },
     },
   };
 }

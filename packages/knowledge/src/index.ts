@@ -47,3 +47,4 @@ export * from "./research/seeded-resources.js";
 export * from "./research/progress-events.js";
 export * from "./graph/repo-graph-builder.js";
 export * from "./graph/repo-graph-report.js";
+export * from "./cache/index.js";

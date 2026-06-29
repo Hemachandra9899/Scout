@@ -13,6 +13,7 @@ import {
   type ProviderErrorKind,
 } from "./search-providers/provider-error.js";
 import { classifyProviderError } from "./provider-errors.js";
+import { cacheWrap, searchCacheKey, CACHE_SEARCH_TTL_MS } from "../cache/index.js";
 
 export type SearchResourceCandidateOptions = {
   freshnessRequired?: boolean;
@@ -78,45 +79,18 @@ function mergeProviderResults(results: ResourceCandidate[]): ResourceCandidate[]
   return [...byUrl.values()];
 }
 
-export async function searchResourceCandidates(
+async function executeProviderSearch(
   query: string,
-  limit = 5,
-  options: SearchResourceCandidateOptions = {}
-): Promise<ResourceCandidate[]> {
-  const allProviders = options.providers ?? getConfiguredSearchProviders();
-  if (allProviders.length === 0) return [];
-
-  const route = determineProviderRoute(query);
-  const routeBudgets = getRouteBudgets(route.routeKind);
-
-  const freshnessRequired =
-    options.freshnessRequired ?? route.freshnessRequired ?? isFreshnessRequired(query);
-
-  const providerByName = new Map(allProviders.map((p) => [p.name, p]));
-  const selectedProviders: SearchProvider[] = [];
+  limit: number,
+  providers: SearchProvider[],
+  budgets: Record<string, { maxResults: number; enabled: boolean }>,
+  freshnessRequired: boolean,
+): Promise<{ merged: ResourceCandidate[]; runs: ProviderRunTrace[] }> {
   const runs: ProviderRunTrace[] = [];
 
-  for (const name of route.selectedProviders) {
-    const budget = routeBudgets[name];
-    if (!budget || !budget.enabled) {
-      runs.push({ provider: name, status: "skipped", budget: budget?.maxResults ?? 0, resultCount: 0 });
-      continue;
-    }
-
-    const provider = providerByName.get(name);
-    if (!provider) {
-      runs.push({ provider: name, status: "skipped", budget: budget.maxResults, resultCount: 0 });
-      continue;
-    }
-
-    selectedProviders.push(provider);
-  }
-
-  if (selectedProviders.length === 0) return [];
-
   const settled = await Promise.allSettled(
-    selectedProviders.map((provider) => {
-      const budget = routeBudgets[provider.name];
+    providers.map((provider) => {
+      const budget = budgets[provider.name];
       return provider.search({
         query,
         limit: budget.maxResults,
@@ -129,8 +103,8 @@ export async function searchResourceCandidates(
 
   for (let i = 0; i < settled.length; i++) {
     const item = settled[i];
-    const providerName = selectedProviders[i].name;
-    const budget = routeBudgets[providerName];
+    const providerName = providers[i].name;
+    const budget = budgets[providerName];
 
     if (item.status === "fulfilled") {
       results.push(...item.value);
@@ -150,9 +124,54 @@ export async function searchResourceCandidates(
     }
   }
 
-  const merged = mergeProviderResults(results).slice(0, limit * 3);
+  return { merged: mergeProviderResults(results).slice(0, limit * 3), runs };
+}
 
-  const usage = summarizeRuns(runs);
+export async function searchResourceCandidates(
+  query: string,
+  limit = 5,
+  options: SearchResourceCandidateOptions = {}
+): Promise<ResourceCandidate[]> {
+  const allProviders = options.providers ?? getConfiguredSearchProviders();
+  if (allProviders.length === 0) return [];
+
+  const route = determineProviderRoute(query);
+  const routeBudgets = getRouteBudgets(route.routeKind);
+
+  const freshnessRequired =
+    options.freshnessRequired ?? route.freshnessRequired ?? isFreshnessRequired(query);
+
+  const providerByName = new Map(allProviders.map((p) => [p.name, p]));
+  const selectedProviders: SearchProvider[] = [];
+  const skippedRuns: ProviderRunTrace[] = [];
+
+  for (const name of route.selectedProviders) {
+    const budget = routeBudgets[name];
+    if (!budget || !budget.enabled) {
+      skippedRuns.push({ provider: name, status: "skipped", budget: budget?.maxResults ?? 0, resultCount: 0 });
+      continue;
+    }
+
+    const provider = providerByName.get(name);
+    if (!provider) {
+      skippedRuns.push({ provider: name, status: "skipped", budget: budget.maxResults, resultCount: 0 });
+      continue;
+    }
+
+    selectedProviders.push(provider);
+  }
+
+  if (selectedProviders.length === 0) return [];
+
+  const cacheKeyRoute = searchCacheKey(query, limit, route.routeKind);
+  const { value: { merged, runs }, cacheHit } = await cacheWrap(
+    cacheKeyRoute,
+    () => executeProviderSearch(query, limit, selectedProviders, routeBudgets, freshnessRequired),
+    CACHE_SEARCH_TTL_MS,
+  );
+
+  const allRuns = [...skippedRuns, ...runs];
+  const usage = summarizeRuns(allRuns);
 
   const searchTrace = {
     routeKind: route.routeKind,
@@ -161,7 +180,8 @@ export async function searchResourceCandidates(
     ...usage,
     freshnessRequired,
     budgets: routeBudgets,
-    runs,
+    runs: allRuns,
+    cacheHit,
   };
 
   return merged.map((result) => ({

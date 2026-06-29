@@ -72,7 +72,17 @@
     "./rerank/deterministic-reranker": "./src/rerank/deterministic-reranker.js",
     "./rerank/deterministic-reranker.js": "./src/rerank/deterministic-reranker.js",
     "./rerank/llm-reranker": "./src/rerank/llm-reranker.js",
-    "./rerank/llm-reranker.js": "./src/rerank/llm-reranker.js"
+    "./rerank/llm-reranker.js": "./src/rerank/llm-reranker.js",
+    "./cache": "./src/cache/index.js",
+    "./cache/index.js": "./src/cache/index.js",
+    "./cache/cache-types": "./src/cache/cache-types.js",
+    "./cache/cache-types.js": "./src/cache/cache-types.js",
+    "./cache/cache-key": "./src/cache/cache-key.js",
+    "./cache/cache-key.js": "./src/cache/cache-key.js",
+    "./cache/in-memory-cache": "./src/cache/in-memory-cache.js",
+    "./cache/in-memory-cache.js": "./src/cache/in-memory-cache.js",
+    "./cache/cache-manager": "./src/cache/cache-manager.js",
+    "./cache/cache-manager.js": "./src/cache/cache-manager.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",
