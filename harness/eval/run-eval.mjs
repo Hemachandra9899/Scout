@@ -672,6 +672,19 @@ function extractPhase2SignalsFromResponse(response) {
       response?.rawToolResult?.debug?.agentExecutor?.status ??
       null
     ),
+    agentTraceEventCount: Number(
+      debug.agentExecutor?.trace?.length ??
+      response?.ui?.agent?.trace?.length ??
+      0
+    ),
+    agentToolCallCount: Number(
+      debug.agentExecutor?.toolCallCount ??
+      0
+    ),
+    agentDurationMs: Number(
+      debug.agentExecutor?.durationMs ??
+      0
+    ),
   };
 }
 

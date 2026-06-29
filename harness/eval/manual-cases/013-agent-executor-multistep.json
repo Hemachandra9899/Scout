@@ -1,0 +1,20 @@
+[
+  {
+    "id": "agent-executor-multistep-compare-001",
+    "intent": "agent_executor_multistep",
+    "description": "Explicit agent mode should create multiple web research steps for comparison.",
+    "query": "Use agent executor to compare Google Ads API and Meta Marketing API authentication, permissions, and rate limits with citations.",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": [
+      "Google Ads API",
+      "Meta Marketing API",
+      "authentication"
+    ],
+    "expectedDebug": {
+      "agentExecutorUsed": true
+    },
+    "minGroundedRatio": 0.5,
+    "maxLatencyMs": 240000
+  }
+]
