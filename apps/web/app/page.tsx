@@ -321,6 +321,21 @@ export default function Home() {
     }
   }, [selectedProjectId]);
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setSettingsOpen(false);
+        setAppsOpen(false);
+        setMemoryUploadOpen(false);
+        setDocumentUploadOpen(false);
+        setPlusMenuOpen(false);
+        setActiveApp(null);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <main className="app-container">
       <div style={{ display: "flex", flexDirection: "column", height: "100%", width: sidebarOpen ? "250px" : "0px", overflow: "hidden", flexShrink: 0, transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
