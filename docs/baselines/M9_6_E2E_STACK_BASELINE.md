@@ -46,7 +46,7 @@ GET /health (model) → {"status":"ok","provider":"nvidia","model":"z-ai/glm-5.1
 | Gate | Result |
 |------|--------|
 | eval:ci | 10/10 PASS (reward 6.0, routing 100%) |
-| eval:phase2 | 6/7 PASS (1 expected fresh-DB failure) |
+| eval:phase2 | 6/7 PASS — known memo-repo latency flake: `phase2-memo-repo-001` fails because memory isn't committed before the recall check runs. Not an M9.6 regression. |
 | eval:phase3 | 8/8 PASS (reward 6.0, routing 100%) |
 | eval:routing-intent | 17/17 PASS (reward 6.0, routing 100%) |
 
