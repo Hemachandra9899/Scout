@@ -82,7 +82,11 @@
     "./cache/in-memory-cache": "./src/cache/in-memory-cache.js",
     "./cache/in-memory-cache.js": "./src/cache/in-memory-cache.js",
     "./cache/cache-manager": "./src/cache/cache-manager.js",
-    "./cache/cache-manager.js": "./src/cache/cache-manager.js"
+    "./cache/cache-manager.js": "./src/cache/cache-manager.js",
+    "./agent": "./src/agent/index.js",
+    "./agent/index.js": "./src/agent/index.js",
+    "./agent/agent-types": "./src/agent/agent-types.js",
+    "./agent/agent-types.js": "./src/agent/agent-types.js"
   },
   "dependencies": {
     "@rlm-forge/clients": "*",
