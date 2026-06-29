@@ -1,0 +1,13 @@
+[
+  {
+    "id": "provider-firecrawl-disabled-001",
+    "intent": "provider_fallback",
+    "description": "Research should still work when Firecrawl is disabled.",
+    "query": "What is the latest important WhatsApp news this week?",
+    "expectedTier": 2,
+    "expectedTool": "web_research",
+    "mustMention": ["WhatsApp"],
+    "minGroundedRatio": 0,
+    "maxLatencyMs": 180000
+  }
+]

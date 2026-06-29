@@ -1,0 +1,23 @@
+{
+  "id": "phase3-graph-report-001",
+  "intent": "graph_report",
+  "description": "Scout should generate a GRAPH_REPORT.md-style report from the persisted repo graph.",
+  "query": "Generate GRAPH_REPORT.md for the Scout repo graph.",
+  "expectedTier": 3,
+  "expectedTool": "query_graph",
+  "mustMention": [
+    "GRAPH_REPORT.md",
+    "Repo Graph Report",
+    "Key services",
+    "Important files",
+    "High-degree nodes",
+    "Relation type counts",
+    "Suggested follow-up questions"
+  ],
+  "mustNotClaim": [],
+  "expectedPhase2": {
+    "graphReportUsed": true
+  },
+  "minGroundedRatio": 0,
+  "maxLatencyMs": 90000
+}

@@ -1,9 +1,10 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 python-dotenv==1.0.1
-langchain==0.3.14
-langchain-core==0.3.29
-langchain-nvidia-ai-endpoints==0.3.7
+langchain-core==0.3.86
+langchain-nvidia-ai-endpoints==0.3.19
+pydantic==2.13.4
+pydantic-settings==2.14.2
 markitdown[all]
 python-multipart==0.0.20
 curl-cffi==0.7.2

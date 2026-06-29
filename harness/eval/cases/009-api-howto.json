@@ -1,0 +1,14 @@
+{
+  "id": "api-howto-001",
+  "query": "How do I authenticate to the Google Ads API?",
+  "intent": "api_docs",
+  "expectedTier": 2,
+  "expectedTool": "web_research",
+  "mustMention": ["OAuth", "developer token", "Google Ads API"],
+  "mustNotClaim": ["no authentication required"],
+  "referenceAnswer": "Google Ads API authentication uses OAuth 2.0 credentials and requires a developer token for API access.",
+  "minGroundedRatio": 0.7,
+  "minCorrectness": 0.7,
+  "minCompleteness": 0.7,
+  "maxLatencyMs": 90000
+}

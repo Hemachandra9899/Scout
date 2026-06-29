@@ -15,6 +15,7 @@ export type ResearchContractUi = {
   skippedCrawls?: Array<Record<string, any>>;
   resources?: Array<Record<string, any>>;
   warnings?: string[];
+  graph?: Record<string, any>;
 };
 
 export type ResearchContractDebug = {
@@ -23,6 +24,13 @@ export type ResearchContractDebug = {
   evidence?: Record<string, any>;
   answer?: Record<string, any>;
   memories?: Record<string, any>;
+  graph?: Record<string, any>;
+  graphReportUsed?: boolean;
+  graphReportNodeCount?: number;
+  graphReportRelationCount?: number;
+  graphReportHighDegreeCount?: number;
+  graphReportDownloads?: Record<string, string>;
+  graphPathCount?: number;
 };
 
 export type ResearchContract = {

@@ -1,0 +1,14 @@
+{
+  "id": "github-repo-architecture-001",
+  "query": "Explain the architecture of https://github.com/Hemachandra9899/Scout",
+  "intent": "repo_explanation",
+  "expectedTier": 2,
+  "expectedTool": "github_repo",
+  "mustMention": ["apps", "packages", "api", "rlm-runtime"],
+  "mustNotClaim": ["mobile app", "blockchain"],
+  "referenceAnswer": "Scout is a monorepo with apps for web, api, worker, rlm-runtime, and model-service, plus packages for knowledge, retrieval, database, and queue.",
+  "minGroundedRatio": 0,
+  "minCorrectness": 0.7,
+  "minCompleteness": 0.6,
+  "maxLatencyMs": 90000
+}

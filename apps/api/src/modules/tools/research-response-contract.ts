@@ -2,8 +2,10 @@ import type {
   CrawlTrace,
   EvidencePack,
   GroundingAudit,
+  ProviderUsageSummary,
   SynthesizedAnswer,
 } from "@rlm-forge/knowledge";
+import { summarizeProviderUsage } from "@rlm-forge/knowledge";
 
 type RawOrchestratorOutput = {
   status: string;
@@ -28,6 +30,7 @@ type RawOrchestratorOutput = {
   crawlTrace: CrawlTrace;
   evidencePack: EvidencePack;
   answer: SynthesizedAnswer;
+  researchTrace: Array<{ name: string; ms: number; ok: boolean; error?: string; data?: Record<string, unknown> }>;
 };
 
 export type RawContractFields = RawOrchestratorOutput;
@@ -76,6 +79,15 @@ export type ResearchResponseContract = RawOrchestratorOutput & {
       groundingAudit: GroundingAudit;
     };
     memories: Record<string, unknown>;
+    sourceRelevance: Record<string, unknown> | null;
+    recoveryAttempted: boolean;
+    providers: ProviderUsageSummary;
+    progress: Record<string, unknown> | null;
+    cache: {
+      enabled: boolean;
+      searchCacheHit: boolean;
+      fetchCacheHit: boolean;
+    };
   };
 };
 
@@ -85,6 +97,27 @@ export function buildResearchResponse(
   const { evidencePack, answer, crawlTrace, skippedCrawls, resourcesPlanned, memories } = raw;
 
   const warnings: string[] = [];
+
+  const searchCacheHit = (raw.resourcesPlanned ?? []).some((r) => {
+    const meta = r.metadata as Record<string, unknown> | undefined;
+    const searchTrace = meta?.searchTrace as Record<string, unknown> | undefined;
+    return searchTrace?.cacheHit === true;
+  });
+
+  const recoveryAttempted = (raw.researchTrace ?? []).some((stage) =>
+    String(stage.name ?? "").toLowerCase().includes("recovery_retry"),
+  );
+
+  const sourceRelevanceTrace = raw.researchTrace?.find((t) => t.name === "source_relevance");
+  const sourceRelevance = sourceRelevanceTrace
+    ? {
+        ok: sourceRelevanceTrace.ok,
+        error: sourceRelevanceTrace.error,
+        ...(sourceRelevanceTrace.data?.report
+          ? { groupCoverage: (sourceRelevanceTrace.data.report as any).groupCoverage }
+          : {}),
+      }
+    : null;
 
   if (raw.failedCrawls && raw.failedCrawls.length > 0) {
     warnings.push(`${raw.failedCrawls.length} source(s) failed to crawl`);
@@ -160,6 +193,15 @@ export function buildResearchResponse(
         groundingAudit: answer.groundingAudit,
       },
       memories: memories ?? {},
+      sourceRelevance,
+      recoveryAttempted,
+      providers: summarizeProviderUsage(resourcesPlanned),
+      progress: (raw as any).debug?.progress ?? null,
+      cache: {
+        enabled: process.env.SCOUT_CACHE_ENABLED !== "false",
+        searchCacheHit,
+        fetchCacheHit: false,
+      },
     },
   };
 }

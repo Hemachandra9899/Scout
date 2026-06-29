@@ -1,0 +1,14 @@
+{
+  "id": "whatsapp-news-001",
+  "query": "What is the latest important WhatsApp news?",
+  "intent": "news_current",
+  "expectedTier": 2,
+  "expectedTool": "web_research",
+  "mustMention": ["WhatsApp"],
+  "mustNotClaim": ["confirmed acquisition by Google", "shutting down globally"],
+  "referenceAnswer": "A good answer should summarize recent WhatsApp news with source-backed claims and avoid unsupported rumors.",
+  "minGroundedRatio": 0.6,
+  "minCorrectness": 0.7,
+  "minCompleteness": 0.6,
+  "maxLatencyMs": 120000
+}

@@ -115,6 +115,19 @@ export function scoreResourceWithMemory(input: {
         const delta = Math.round(8 * confidence);
         scoreDelta += delta;
         matchedBy.push(`memory:source_quality_host:+${delta}`);
+      } else {
+        const matchedEntity = (memory.entities ?? []).find((entity) =>
+          queryOrResourceMentionsEntity({
+            query: input.query,
+            resource: input.resource,
+            entity,
+          }),
+        );
+        if (matchedEntity) {
+          const delta = Math.round(12 * confidence);
+          scoreDelta += delta;
+          matchedBy.push(`memory:source_quality_entity:${matchedEntity}:+${delta}`);
+        }
       }
     }
 

@@ -9,12 +9,17 @@ export const crawlUrlSchema = z.object({
 
 export const webResearchSchema = z.object({
   projectId: z.string().uuid(),
+  userId: z.string().optional(),
   query: z.string().min(1),
   maxResults: z.number().int().min(1).max(10).optional(),
   maxPagesPerSource: z.number().int().min(1).max(10).optional(),
   maxTotalPages: z.number().int().min(1).max(50).optional(),
   maxDepth: z.number().int().min(0).max(3).optional(),
   useOrchestrator: z.boolean().optional(),
+  focused: z.boolean().optional(),
+  maxResources: z.number().int().positive().max(20).optional(),
+  maxPages: z.number().int().positive().max(20).optional(),
+  timeoutMs: z.number().int().positive().max(120000).optional(),
 });
 
 export const planResourcesSchema = z.object({

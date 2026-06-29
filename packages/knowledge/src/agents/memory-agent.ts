@@ -57,6 +57,19 @@ export class MemoryAgent {
     return this.memoryManager.buildDurableFactMemoriesFromEvidencePack(input);
   }
 
+  buildRepoMemories(input: {
+    projectId: string;
+    userId?: string;
+    repoUrl: string;
+    repoName?: string;
+    description?: string | null;
+    selectedFiles?: string[];
+    stack?: string[];
+    answer?: string;
+  }): ScoutMemoryDraft[] {
+    return this.memoryManager.buildRepoMemories(input);
+  }
+
   async writeRunMemories(
     context: AgentContext,
     drafts: ScoutMemoryDraft[]

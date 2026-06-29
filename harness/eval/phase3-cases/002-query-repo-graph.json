@@ -1,0 +1,16 @@
+{
+  "id": "phase3-query-repo-graph-001",
+  "intent": "query_repo_graph",
+  "description": "User asks a question about the repo's code graph to test query_graph tool routing.",
+  "query": "what entities and relations are in the repo code graph",
+  "expectedTier": 3,
+  "expectedTool": "query_graph",
+  "mustMention": ["entities", "relations"],
+  "mustNotClaim": [],
+  "expectedPhase2": {
+    "repoGraphUsed": true
+  },
+  "minGroundedRatio": 0,
+  "minCompleteness": 0.5,
+  "maxLatencyMs": 60000
+}

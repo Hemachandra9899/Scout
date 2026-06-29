@@ -28,7 +28,7 @@ const MIN_CHAR_COUNT = 200;
 const MAX_LINK_LIKE_RATIO = 0.45;
 const MIN_UNIQUE_WORD_RATIO = 0.15;
 
-export function scorePageQuality(markdown: string): ContentQuality {
+export function scorePageQuality(markdown: string, tier?: string): ContentQuality {
   const wordCount = countWords(markdown);
   const charCount = markdown.length;
   const uniqueWordRatio = computeUniqueWordRatio(markdown);
@@ -37,28 +37,30 @@ export function scorePageQuality(markdown: string): ContentQuality {
   const codeBlockCount = (markdown.match(/```/g) ?? []).length / 2;
   const flags: string[] = [];
 
+  const isStrongSource = tier === "official_docs" || tier === "trusted_docs";
+
   const checks: Array<{ score: number }> = [];
 
   if (wordCount < MIN_WORD_COUNT) {
-    flags.push(`low_word_count:${wordCount}`);
+    if (!isStrongSource) flags.push(`low_word_count:${wordCount}`);
   } else {
     checks.push({ score: Math.min(25, Math.round(wordCount * 0.08)) });
   }
 
   if (charCount < MIN_CHAR_COUNT) {
-    flags.push(`low_char_count:${charCount}`);
+    if (!isStrongSource) flags.push(`low_char_count:${charCount}`);
   } else if (charCount > 500) {
     checks.push({ score: Math.min(10, Math.round(charCount * 0.005)) });
   }
 
   if (uniqueWordRatio < MIN_UNIQUE_WORD_RATIO) {
-    flags.push(`low_unique_word_ratio:${uniqueWordRatio.toFixed(2)}`);
+    if (!isStrongSource) flags.push(`low_unique_word_ratio:${uniqueWordRatio.toFixed(2)}`);
   } else if (uniqueWordRatio > 0.3) {
     checks.push({ score: Math.min(15, Math.round(uniqueWordRatio * 30)) });
   }
 
   if (linkLikeLineRatio > MAX_LINK_LIKE_RATIO) {
-    flags.push(`high_nav_ratio:${linkLikeLineRatio.toFixed(2)}`);
+    if (!isStrongSource) flags.push(`high_nav_ratio:${linkLikeLineRatio.toFixed(2)}`);
   } else {
     checks.push({ score: Math.min(10, Math.round((1 - linkLikeLineRatio) * 15)) });
   }
@@ -79,6 +81,7 @@ export function scorePageQuality(markdown: string): ContentQuality {
   const score = Math.min(100, checks.reduce((sum, c) => sum + c.score, 0));
   const reject =
     flags.length > 0 &&
+    !isStrongSource &&
     (wordCount < MIN_WORD_COUNT ||
       charCount < MIN_CHAR_COUNT ||
       linkLikeLineRatio > MAX_LINK_LIKE_RATIO ||
@@ -86,7 +89,7 @@ export function scorePageQuality(markdown: string): ContentQuality {
       blockedMatch);
 
   return {
-    status: reject ? "reject" : score >= 20 ? "accept" : "reject",
+    status: reject ? "reject" : score >= (isStrongSource ? 1 : 20) ? "accept" : "reject",
     score,
     wordCount,
     charCount,

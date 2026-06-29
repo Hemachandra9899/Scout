@@ -12,6 +12,7 @@ import {
 } from "@rlm-forge/knowledge";
 
 import { searchKnowledgeBase as runKnowledgeSearch } from "@rlm-forge/retrieval";
+import { queryRepoGraph } from "@rlm-forge/knowledge/graph/repo-graph-query.js";
 import { prisma } from "@rlm-forge/database/prisma.js";
 import type {
   CrawlUrlInput,
@@ -22,6 +23,7 @@ import type {
   GithubRepoInput,
 } from "./tools.schema.js";
 import { buildResearchResponse } from "./research-response-contract.js";
+import type { ScoutProgressSink } from "@rlm-forge/knowledge";
 
 const MODEL_SERVICE_URL =
   process.env.MODEL_SERVICE_URL || "http://model-service:8100";
@@ -115,16 +117,22 @@ export async function planResearchResources(input: PlanResourcesInput) {
   };
 }
 
-export async function webResearch(input: WebResearchInput) {
+export async function webResearch(input: WebResearchInput & { onProgress?: ScoutProgressSink }) {
   if (input.useOrchestrator) {
     const orchestrator = new ResearchOrchestrator();
     const raw = await orchestrator.run({
       projectId: input.projectId,
+      userId: input.userId,
       query: input.query,
       maxSources: input.maxResults,
       maxPagesPerSource: input.maxPagesPerSource,
       maxTotalPages: input.maxTotalPages,
       maxDepth: input.maxDepth,
+      focused: input.focused,
+      maxResources: input.maxResources,
+      maxPages: input.maxPages,
+      timeoutMs: input.timeoutMs,
+      onProgress: input.onProgress,
     });
     return buildResearchResponse(raw);
   }
@@ -285,7 +293,7 @@ function parseGithubRepo(input: string): GitHubRepoParsed {
 function ghHeaders(): HeadersInit { return { Accept:"application/vnd.github+json", "User-Agent":"Scout-GitHub-Repo-Tool", ...(process.env.GITHUB_TOKEN ? { Authorization:`Bearer ${process.env.GITHUB_TOKEN}` } : {}) }; }
 async function ghJson<T>(url: string): Promise<T> { const res = await fetch(url,{headers:ghHeaders()}); if(!res.ok) throw new Error(`GitHub request failed: ${res.status} ${await res.text()}`); return res.json() as Promise<T>; }
 async function ghRaw(owner:string, repo:string, branch:string, path:string): Promise<string|null> { const raw=`https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(branch)}/${path.split("/").map(encodeURIComponent).join("/")}`; const res=await fetch(raw,{headers:{"User-Agent":"Scout-GitHub-Repo-Tool",...(process.env.GITHUB_TOKEN?{Authorization:`Bearer ${process.env.GITHUB_TOKEN}`}:{})}}); return res.ok ? res.text() : null; }
-function rankRepoPath(path: string): number { const x=path.toLowerCase(); if(x==="readme.md")return 1000; if(x==="package.json")return 950; if(x==="docker-compose.yml"||x==="docker-compose.yaml")return 930; if(x==="prisma/schema.prisma")return 920; if(x.endsWith("/package.json"))return 880; if(x.endsWith("dockerfile"))return 820; if(x.startsWith("docs/"))return 760; if(/^(apps|packages)\//.test(x)&&/(main|server|router|service|schema|client|index)\.(ts|tsx|js|py)$/.test(x))return 720; if(x.includes("__tests__")||x.endsWith(".test.ts")||x.endsWith(".spec.ts"))return 500; if(/\.(ts|tsx|js|py|md|prisma|yml|yaml|json)$/.test(x))return 200; return 0; }
+function rankRepoPath(path: string): number { const x=path.toLowerCase(); if(x==="readme.md")return 1000; if(x==="package.json")return 950; if(x==="docker-compose.yml"||x==="docker-compose.yaml")return 930; if(x==="prisma/schema.prisma")return 920; if(x.endsWith("/package.json"))return 880; if(x.endsWith("dockerfile"))return 820; if(x.startsWith("docs/"))return 760; if(/^(apps|packages)\//.test(x)&&/(main|server|router|service|schema|client|index|manager|worker|runtime|tools|memory)\.(ts|tsx|js|py)$/.test(x))return 720; if(x.includes("__tests__")||x.endsWith(".test.ts")||x.endsWith(".spec.ts"))return 500; if(/\.(ts|tsx|js|py|md|prisma|yml|yaml|json)$/.test(x))return 200; return 0; }
 function clip(text:string,max=3500){const t=text.replace(/\r\n/g,"\n").trim(); return t.length<=max?t:t.slice(0,max)+"\n...[truncated]";}
 function stackFrom(paths:string[], pkgs:string[]): string[] { const s=new Set<string>(); if(paths.some(p=>p.startsWith("apps/web/")))s.add("Next.js/web app"); if(paths.some(p=>p.startsWith("apps/api/")))s.add("API service"); if(paths.some(p=>p.startsWith("apps/worker/")))s.add("background worker"); if(paths.some(p=>p.startsWith("apps/model-service/")))s.add("Python model service"); if(paths.some(p=>p.startsWith("apps/rlm-runtime/")))s.add("RLM runtime"); if(paths.some(p=>p.startsWith("packages/")))s.add("monorepo packages"); if(paths.some(p=>p==="docker-compose.yml"||p==="docker-compose.yaml"))s.add("Docker Compose"); if(paths.some(p=>p==="prisma/schema.prisma"))s.add("Prisma/Postgres"); if(pkgs.some(t=>t.includes("bullmq")))s.add("BullMQ/Redis"); if(pkgs.some(t=>t.includes("fastify")))s.add("Fastify"); if(pkgs.some(t=>t.includes("qdrant")))s.add("Qdrant/vector retrieval"); return [...s]; }
 function repoAnswer(i:{fullName:string;htmlUrl:string;description?:string|null;defaultBranch:string;selectedFiles:string[];stack:string[];files:Array<{path:string;text:string}>}){ const out:string[]=[]; out.push(`# ${i.fullName}`,""); if(i.description) out.push(i.description,""); out.push("## What this repository appears to contain",""); out.push(i.stack.length?`Detected stack/components: ${i.stack.join(", ")}.`:"Detected stack/components were not obvious from selected files.",""); out.push("## Key files inspected",""); for(const f of i.selectedFiles.slice(0,20)) out.push(`- \`${f}\``); out.push("","## High-level structure",""); for(const f of [...new Set(i.selectedFiles.map(p=>p.split("/")[0]))].slice(0,12)) out.push(`- \`${f}\``); out.push("","## Notes from selected files",""); for(const f of i.files.slice(0,8)){ const first=f.text.split("\n").map(l=>l.trim()).filter(l=>l&&!l.startsWith("#")&&!l.startsWith("//")).slice(0,3).join(" "); out.push(`- \`${f.path}\`: ${first||"File inspected."}`); } out.push("","## Source",i.htmlUrl); return out.join("\n"); }
@@ -307,33 +315,32 @@ export async function githubRepo(input: GithubRepoInput) {
 }
 
 export async function queryGraph(input: QueryGraphInput) {
+  if (!input.projectId) {
+    return {
+      status: "ok",
+      query: input.query,
+      depth: input.depth ?? 1,
+      entities: [],
+      relations: [],
+      paths: [],
+      answer: "A projectId is required to query the repo graph.",
+      markdown: "A projectId is required to query the repo graph.",
+      debug: {
+        repoGraphUsed: false,
+        graphPathUsed: false,
+        graphPathCount: 0,
+        graphEntityCount: 0,
+        graphRelationCount: 0,
+        graphTraversalDepth: input.depth ?? 1,
+      },
+    };
+  }
 
-  const entities = await prisma.entity.findMany({
-    where: {
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-      OR: [
-        { name: { contains: input.query, mode: "insensitive" } },
-        { description: { contains: input.query, mode: "insensitive" } },
-      ],
-    },
-    take: 10,
+  return queryRepoGraph({
+    projectId: input.projectId,
+    query: input.query,
+    depth: input.depth ?? 2,
   });
-
-  const entityIds = entities.map((e: { id: string }) => e.id);
-  const relations = entityIds.length
-    ? await prisma.relation.findMany({
-        where: {
-          ...(input.projectId ? { projectId: input.projectId } : {}),
-          OR: [
-            { sourceEntityId: { in: entityIds } },
-            { targetEntityId: { in: entityIds } },
-          ],
-        },
-        take: 20,
-      })
-    : [];
-
-  return { status: "ok", query: input.query, depth: input.depth ?? 1, entities, relations };
 }
 
 export async function convertFileWithMarkItDown(input: {

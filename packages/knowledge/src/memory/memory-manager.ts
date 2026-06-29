@@ -6,6 +6,9 @@ import type {
   ScoutMemorySearchInput,
 } from "./memory-types.js";
 import type { EvidenceItem, EvidencePack } from "../research/source-types.js";
+import { curateAndWriteMemories } from "./memory-curator.js";
+import type { MemoryCuratorResult } from "./memory-curator.js";
+import { deterministicRerank } from "../rerank/deterministic-reranker.js";
 
 type CrawlFailureForMemory = {
   title?: string;
@@ -27,19 +30,38 @@ function unique(values: Array<string | undefined | null>): string[] {
   return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
 }
 
+const MEMORY_RECALL_MIN_SCORE = Number(
+  process.env.MEMORY_RECALL_MIN_SCORE ?? 0.2,
+);
+
+const MEMORY_RECALL_MAX_CONTEXT = Number(
+  process.env.MEMORY_RECALL_MAX_CONTEXT ?? 8,
+);
+
 function normalizeForKey(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function memoryDraftKey(draft: ScoutMemoryDraft): string {
+function memoryIdentityKey(input: {
+  projectId: string;
+  userId?: string | null;
+  scope: string;
+  kind: string;
+  text: string;
+  sourceUrls?: unknown;
+}): string {
   return [
-    draft.projectId,
-    draft.userId ?? "",
-    draft.scope,
-    draft.kind,
-    normalizeForKey(draft.text),
-    unique(draft.sourceUrls ?? []).sort().join("|"),
+    input.projectId,
+    input.userId ?? "",
+    input.scope,
+    input.kind,
+    normalizeForKey(input.text),
+    unique(asStringArray(input.sourceUrls)).sort().join("|"),
   ].join("::");
+}
+
+function memoryDraftKey(draft: ScoutMemoryDraft): string {
+  return memoryIdentityKey(draft);
 }
 
 function dedupeDrafts(drafts: ScoutMemoryDraft[]): ScoutMemoryDraft[] {
@@ -82,34 +104,81 @@ function scoreMemory(query: string, memory: ScoutMemory): number {
   const q = query.toLowerCase();
   const text = memory.text.toLowerCase();
 
-  const entityScore = memory.entities.some((entity) =>
-    q.includes(entity.toLowerCase())
-  )
-    ? 25
-    : 0;
+  let score = 0;
 
-  const keywordScore = q
+  score += memory.confidence * 0.5;
+
+  if (memory.entities.some((entity) => q.includes(entity.toLowerCase()))) {
+    score += 0.25;
+  }
+
+  const keywordCount = q
     .split(/\s+/)
     .filter((token) => token.length > 3 && text.includes(token)).length;
+  score += Math.min(0.15, keywordCount * 0.03);
 
-  const recencyScore = Math.max(
+  score += Math.max(
     0,
-    10 -
+    0.1 -
       Math.floor(
-        (Date.now() - memory.createdAt.getTime()) / (1000 * 60 * 60 * 24 * 30)
-      )
+        (Date.now() - memory.createdAt.getTime()) / (1000 * 60 * 60 * 24 * 30),
+      ) * 0.01,
   );
 
   const kindBoost =
     memory.kind === "durable_fact"
-      ? 12
+      ? 0.12
       : memory.kind === "source_quality"
-        ? 8
+        ? 0.08
         : memory.kind === "source_failure"
-          ? 6
+          ? 0.06
           : 0;
+  score += kindBoost;
 
-  return memory.confidence * 50 + entityScore + keywordScore * 3 + recencyScore + kindBoost;
+  return Math.min(1, score);
+}
+
+function extractDomains(text: string): string[] {
+  const domains = text.match(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi) ?? [];
+  return [...new Set(domains.map((d) => d.toLowerCase()))];
+}
+
+function looksLikePreference(text: string): boolean {
+  const q = text.toLowerCase();
+  return (
+    q.includes("i prefer") ||
+    q.includes("my preference") ||
+    q.includes("for future") ||
+    q.includes("please always") ||
+    q.includes("i like") ||
+    q.includes("i want")
+  );
+}
+
+function extractTopicEntities(text: string): string[] {
+  const products: string[] = text.match(/\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+/g) ?? [];
+  const apiMatches: string[] = text.match(/\b[A-Z][a-z]+(?:\s+API)\b/g) ?? [];
+  return [...new Set([...products, ...apiMatches])];
+}
+
+function looksLikeSourceSave(text: string): boolean {
+  const q = text.toLowerCase();
+  return (
+    (q.includes("save") && q.includes("sourc")) ||
+    (q.includes("remember") && q.includes("sourc"))
+  );
+}
+
+function looksLikeBlockedSource(text: string): boolean {
+  const q = text.toLowerCase();
+  return (
+    q.includes("avoid") ||
+    q.includes("block") ||
+    q.includes("untrusted") ||
+    q.includes("unreliable") ||
+    q.includes("do not use") ||
+    q.includes("don't use")
+  );
 }
 
 function tierConfidence(item: EvidenceItem): number {
@@ -119,39 +188,91 @@ function tierConfidence(item: EvidenceItem): number {
   return 0.65;
 }
 
-export class MemoryManager {
-  async addMany(drafts: ScoutMemoryDraft[]): Promise<number> {
-    const deduped = dedupeDrafts(drafts);
-    if (deduped.length === 0) return 0;
+function extractRepoFullNameFromUrl(url: string): string | null {
+  const match = url.match(/github\.com\/([^/\s]+)\/([^/\s?#]+)/i);
+  if (!match) return null;
+  return `${match[1]}/${match[2].replace(/\.git$/i, "")}`;
+}
 
-    await prisma.memory.createMany({
-      data: deduped.map((draft) => ({
-        projectId: draft.projectId,
-        userId: draft.userId,
-        scope: draft.scope,
-        kind: draft.kind,
-        text: draft.text,
-        entities: (draft.entities ?? []) as unknown as Prisma.InputJsonValue,
-        sourceUrls: (draft.sourceUrls ?? []) as unknown as Prisma.InputJsonValue,
-        confidence: draft.confidence ?? 0.7,
-        eventTime: draft.eventTime,
-        metadata: (draft.metadata ?? {}) as unknown as Prisma.InputJsonValue,
-      })),
+export type RepoMemoryInput = {
+  projectId: string;
+  userId?: string;
+  repoUrl: string;
+  repoName?: string;
+  description?: string | null;
+  selectedFiles?: string[];
+  stack?: string[];
+  answer?: string;
+};
+
+export class MemoryManager {
+  lastCuratorResult: MemoryCuratorResult | null = null;
+
+  getLastCuratorDebug(): MemoryCuratorResult["debug"] | null {
+    return this.lastCuratorResult?.debug ?? null;
+  }
+
+  /**
+   * Drop drafts whose identity key already exists in the DB, so add-only memory does
+   * not accumulate byte-identical rows across runs. Best-effort (no lock); a cleared
+   * project sees no existing rows and behaves exactly as before.
+   */
+  private async filterAlreadyPersisted(
+    drafts: ScoutMemoryDraft[],
+  ): Promise<ScoutMemoryDraft[]> {
+    const projectIds = [...new Set(drafts.map((d) => d.projectId))];
+    const scopes = [...new Set(drafts.map((d) => d.scope))];
+    const kinds = [...new Set(drafts.map((d) => d.kind))];
+
+    const existing = await prisma.memory.findMany({
+      where: {
+        projectId: { in: projectIds },
+        scope: { in: scopes },
+        kind: { in: kinds },
+      },
+      select: {
+        projectId: true,
+        userId: true,
+        scope: true,
+        kind: true,
+        text: true,
+        sourceUrls: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1000,
     });
 
-    return deduped.length;
+    const existingKeys = new Set(existing.map((row) => memoryIdentityKey(row)));
+    return drafts.filter((draft) => !existingKeys.has(memoryDraftKey(draft)));
+  }
+
+  async addMany(drafts: ScoutMemoryDraft[]): Promise<number> {
+    if (drafts.length === 0) return 0;
+
+    this.lastCuratorResult = await curateAndWriteMemories({
+      projectId: drafts[0].projectId,
+      userId: drafts[0].userId,
+      drafts,
+    });
+
+    return this.lastCuratorResult.writtenCount;
   }
 
   async search(input: ScoutMemorySearchInput): Promise<ScoutMemory[]> {
-    const limit = input.limit ?? 8;
+    const limit = Math.min(input.limit ?? 8, MEMORY_RECALL_MAX_CONTEXT);
+
+    const userScopeWhere = input.userId
+      ? {
+          OR: [{ userId: input.userId }, { userId: null }],
+        }
+      : {
+          userId: null,
+        };
+
     const rows = await prisma.memory.findMany({
       where: {
         projectId: input.projectId,
-        ...(input.userId
-          ? {
-              OR: [{ userId: input.userId }, { userId: null }],
-            }
-          : {}),
+        ...userScopeWhere,
         ...(input.scopes?.length ? { scope: { in: input.scopes } } : {}),
         ...(input.kinds?.length ? { kind: { in: input.kinds } } : {}),
       },
@@ -159,10 +280,115 @@ export class MemoryManager {
       take: Math.max(limit * 5, 25),
     });
 
-    return rows
-      .map(toScoutMemory)
-      .sort((a, b) => scoreMemory(input.query, b) - scoreMemory(input.query, a))
-      .slice(0, limit);
+    const memories = rows.map(toScoutMemory);
+    const candidates = memories.map((memory) => {
+      const metadata = memory.metadata as Record<string, unknown> | null;
+      return {
+        id: memory.id,
+        title: `${memory.kind}:${memory.scope}`,
+        text: memory.text,
+        sourceType: memory.kind,
+        baseScore: memory.confidence ?? 0.7,
+        metadata: {
+          ...(metadata ?? {}),
+          kind: memory.kind,
+          scope: memory.scope,
+          tier: metadata?.tier,
+          confidence: memory.confidence,
+        },
+      };
+    });
+
+    const { results, debug } = deterministicRerank({
+      query: input.query,
+      candidates,
+      surface: "memory",
+      topK: limit,
+    });
+
+    // Save debug on instance for tracking if needed, or pass it up
+    (this as any).lastSearchDebug = debug;
+
+    const memoryById = new Map(memories.map((m) => [m.id, m]));
+    return results
+      .map((result) => {
+        const memory = memoryById.get(result.id);
+        if (!memory) return null;
+        return {
+          ...memory,
+          score: result.finalScore,
+          rerankReason: result.reason,
+        };
+      })
+      .filter((m): m is ScoutMemory & { score: number; rerankReason: string } => m !== null && m.score >= MEMORY_RECALL_MIN_SCORE);
+  }
+
+  buildExplicitMemoriesFromUserMessage(input: {
+    projectId: string;
+    userId?: string;
+    message: string;
+  }): ScoutMemoryDraft[] {
+    const text = input.message.trim();
+    if (!text) return [];
+
+    const domains = extractDomains(text);
+    const drafts: ScoutMemoryDraft[] = [];
+
+    if (looksLikePreference(text) && !looksLikeBlockedSource(text)) {
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "user",
+        kind: "preference",
+        text,
+        entities: ["preference"],
+        confidence: 0.95,
+        metadata: {
+          source: "explicit_user_message",
+        },
+      });
+    }
+
+    if (looksLikeSourceSave(text)) {
+      const topicEntities = extractTopicEntities(text);
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "source",
+        kind: "source_quality",
+        text: `User wants to save useful official sources: ${text}`,
+        sourceUrls: [],
+        entities: topicEntities,
+        confidence: 0.9,
+        metadata: {
+          source: "explicit_user_message",
+          sourceSaveRequest: true,
+        },
+      });
+    }
+
+    if (looksLikeBlockedSource(text) && domains.length > 0) {
+      for (const domain of domains) {
+        drafts.push({
+          projectId: input.projectId,
+          userId: input.userId,
+          scope: "source",
+          kind: "source_failure",
+          text: `User marked ${domain} as blocked or unreliable: ${text}`,
+          entities: [domain, "blocked_source"],
+          sourceUrls: [`https://${domain}`],
+          confidence: 0.98,
+          metadata: {
+            source: "explicit_user_message",
+            domain,
+            domain_blocked: true,
+            user_blocked: true,
+          },
+        });
+      }
+    }
+
+    return dedupeDrafts(drafts);
   }
 
   buildSourceMemoriesFromEvidencePack(input: {
@@ -302,6 +528,92 @@ export class MemoryManager {
         },
       });
     });
+
+    return dedupeDrafts(drafts);
+  }
+
+  buildRepoMemories(input: RepoMemoryInput): ScoutMemoryDraft[] {
+    const repoName = input.repoName ?? extractRepoFullNameFromUrl(input.repoUrl);
+    if (!repoName) return [];
+
+    const selectedFiles = input.selectedFiles ?? [];
+    const stack = input.stack ?? [];
+    const answer = input.answer ?? "";
+
+    const drafts: ScoutMemoryDraft[] = [
+      {
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "source",
+        kind: "source_quality",
+        text: `GitHub repository ${repoName} was analyzed and saved as useful repo context.`,
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, "github_repo", "repo_memory", ...stack],
+        confidence: 0.95,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          stack,
+          selectedFiles,
+        },
+      },
+      {
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "project",
+        kind: "durable_fact",
+        text: `Repository ${repoName} contains these detected components: ${stack.length ? stack.join(", ") : "unknown stack"}.`,
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, ...stack],
+        confidence: 0.85,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          factType: "repo_stack",
+        },
+      },
+    ];
+
+    if (selectedFiles.length > 0) {
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "project",
+        kind: "durable_fact",
+        text: `Repository ${repoName} important files include: ${selectedFiles.slice(0, 20).join(", ")}.`,
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, "important_files"],
+        confidence: 0.85,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          selectedFiles: selectedFiles.slice(0, 50),
+          factType: "repo_files",
+        },
+      });
+    }
+
+    if (answer.trim()) {
+      drafts.push({
+        projectId: input.projectId,
+        userId: input.userId,
+        scope: "project",
+        kind: "durable_fact",
+        text: answer.slice(0, 3000),
+        sourceUrls: [input.repoUrl],
+        entities: [repoName, "repo_summary"],
+        confidence: 0.8,
+        metadata: {
+          source: "memo_repo",
+          repoName,
+          repoUrl: input.repoUrl,
+          factType: "repo_summary",
+        },
+      });
+    }
 
     return dedupeDrafts(drafts);
   }

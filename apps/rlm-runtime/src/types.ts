@@ -31,12 +31,34 @@ export type ToolHandler = (
   args: Record<string, unknown>,
 ) => Promise<unknown>;
 
+export type SandboxBudget = {
+  timeoutMs: number;
+  maxStdoutChars: number;
+  maxStderrChars: number;
+  maxToolCalls: number;
+};
+
+export type SandboxSafetyDebug = {
+  budget: SandboxBudget;
+  timedOut: boolean;
+  killed: boolean;
+  stdoutSize: number;
+  stderrSize: number;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  toolCallCount: number;
+  toolCallLimitHit: boolean;
+  isolationMode: "best_effort_globals" | "worker" | "none";
+};
+
 export type PythonExecutionResult = {
   stdout: string;
+  stderr?: string;
   final: unknown;
   finalCalled: boolean;
   error: string | null;
   toolCalls: string[];
+  safety?: SandboxSafetyDebug;
 };
 
 export type RlmStep = {
@@ -99,6 +121,7 @@ export type RlmRunDebug = {
   criticPassed?: boolean;
   criticScore?: number;
   criticReason?: string;
+  sandboxSafety?: SandboxSafetyDebug;
 };
 
 export type RlmRunResult = {

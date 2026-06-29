@@ -1,4 +1,10 @@
 
+/**
+ * Runtime-local fast intent detection for the RLM sandbox loop.
+ * The API router source of truth is:
+ * packages/knowledge/src/router/intent-classifier.ts
+ */
+
 import { ModelClient } from "./modelClient.ts";
 import type { ChatMessage } from "../types.ts";
 

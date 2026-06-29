@@ -1,0 +1,20 @@
+{
+  "id": "phase3-graph-report-export-001",
+  "intent": "graph_report_export",
+  "description": "Scout should expose downloadable graph report links in the graph debug payload.",
+  "query": "Generate GRAPH_REPORT.md for the Scout repo graph and give me export links.",
+  "expectedTier": 3,
+  "expectedTool": "query_graph",
+  "mustMention": [
+    "Repo Graph Report",
+    "Important files",
+    "Suggested follow-up questions"
+  ],
+  "mustNotClaim": [],
+  "expectedPhase2": {
+    "graphReportUsed": true,
+    "graphReportExportUsed": true
+  },
+  "minGroundedRatio": 0,
+  "maxLatencyMs": 90000
+}

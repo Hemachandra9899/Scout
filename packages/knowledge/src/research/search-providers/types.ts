@@ -3,7 +3,8 @@ import type { ResourceCandidate } from "../source-types.js";
 export type SearchProviderName =
   | "firecrawl"
   | "tavily"
-  | "github";
+  | "github"
+  | "local_fetch";
 
 export type SearchProviderInput = {
   query: string;

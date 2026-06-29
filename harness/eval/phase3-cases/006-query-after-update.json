@@ -1,0 +1,16 @@
+{
+  "id": "phase3-query-after-update-001",
+  "intent": "query_repo_graph",
+  "description": "Scout should still answer graph questions after incremental graph update.",
+  "query": "Using the repo graph, show the connection path between router and graph query code.",
+  "expectedTier": 3,
+  "expectedTool": "query_graph",
+  "mustMention": ["router", "graph", "relation"],
+  "mustNotClaim": [],
+  "expectedPhase2": {
+    "repoGraphUsed": true,
+    "graphPathUsed": true
+  },
+  "minGroundedRatio": 0,
+  "maxLatencyMs": 90000
+}

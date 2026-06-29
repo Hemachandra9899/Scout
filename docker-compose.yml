@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rlm-forge-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-scout}
+    ports:
+      - "5432:5432"
+    volumes:
+      - scout_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-scout}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   redis:
     image: redis:7
     container_name: rlm-forge-redis
@@ -34,7 +51,8 @@ services:
     ports:
       - "8787:8787"
     depends_on:
-      - model-service
+      model-service:
+        condition: service_started
 
   api:
     build:
@@ -44,16 +62,26 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/scout?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@postgres:5432/scout
       REDIS_URL: redis://redis:6379
       QDRANT_URL: http://qdrant:6333
       MODEL_SERVICE_URL: http://model-service:8100
       RLM_RUNTIME_URL: http://rlm-runtime:8787
+      AGENT_EXECUTOR_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
-      - redis
-      - qdrant
-      - rlm-runtime
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      model-service:
+        condition: service_started
+      rlm-runtime:
+        condition: service_started
 
   worker:
     build:
@@ -63,15 +91,25 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/scout?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@postgres:5432/scout
       REDIS_URL: redis://redis:6379
       QDRANT_URL: http://qdrant:6333
       MODEL_SERVICE_URL: http://model-service:8100
       RLM_RUNTIME_URL: http://rlm-runtime:8787
     depends_on:
-      - api
-      - redis
-      - qdrant
-      - rlm-runtime
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      model-service:
+        condition: service_started
+      rlm-runtime:
+        condition: service_started
+      api:
+        condition: service_started
 
   web:
     build:
@@ -86,4 +124,5 @@ services:
       - api
 
 volumes:
+  scout_postgres_data:
   qdrant_data:

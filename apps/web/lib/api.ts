@@ -189,4 +189,29 @@ export const api = {
 
     return res.json() as Promise<IngestFileResponse>;
   },
+
+  getLatestGraphReport: (projectId: string) =>
+    request<{
+      status: string;
+      report: Report;
+      download: { markdown: string; json: string };
+    }>(`/graph-reports/latest?projectId=${projectId}`),
+
+  getGraphReport: (reportId: string) =>
+    request<{
+      status: string;
+      report: Report;
+      download: { markdown: string; json: string };
+    }>(`/graph-reports/${reportId}`),
+
+  uploadMemory: (body: {
+    projectId: string;
+    text: string;
+    kind?: string;
+    scope?: string;
+  }) =>
+    request<{ written: number }>("/memories/upload", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

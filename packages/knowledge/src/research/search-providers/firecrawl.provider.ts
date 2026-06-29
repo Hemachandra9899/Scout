@@ -1,4 +1,5 @@
 import type { SearchProvider, SearchProviderResult } from "./types.js";
+import { providerErrorFromResponse } from "./provider-error.js";
 import {
   clampLimit,
   pickPublishedAt,
@@ -41,7 +42,7 @@ export class FirecrawlSearchProvider implements SearchProvider {
       }),
     });
 
-    if (!response.ok) return [];
+    if (!response.ok) throw await providerErrorFromResponse(this.name, response);
 
     const data = await response.json();
     const rows = Array.isArray(data?.data)

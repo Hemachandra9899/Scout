@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .env.local
+.env.remote
 .next/
 *.pyc
 __pycache__/
@@ -14,6 +15,6 @@ tmp
 uploads
 qdrant_storage
 
-# Scout benchmark outputs
-benchmark-runs/
-!benchmark-runs/.gitkeep
+# Scout harness outputs
+harness-runs/*
+!harness-runs/.gitkeep

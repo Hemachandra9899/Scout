@@ -1,0 +1,243 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const runDir = process.argv[2];
+
+if (!runDir) {
+  console.error("Usage: node harness/eval/analyze-run.mjs <harness-runs/run-dir>");
+  process.exit(1);
+}
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function formatMs(ms) {
+  if (!Number.isFinite(Number(ms))) return "n/a";
+  const value = Number(ms);
+  if (value < 1000) return `${value}ms`;
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
+async function readJson(filePath) {
+  return JSON.parse(await fs.readFile(filePath, "utf8"));
+}
+
+async function main() {
+  const evalPath = path.join(runDir, "eval.json");
+  const evalData = await readJson(evalPath);
+  const rows = safeArray(evalData.rows ?? evalData.results);
+
+  const files = await fs.readdir(runDir);
+  const trajectoryFiles = files.filter((file) => file.endsWith(".trajectory.json"));
+
+  const trajectories = [];
+  for (const file of trajectoryFiles) {
+    try {
+      trajectories.push(await readJson(path.join(runDir, file)));
+    } catch {
+      // ignore malformed
+    }
+  }
+
+  const byId = new Map(trajectories.map((item) => [item.caseId, item]));
+
+  const failed = rows.filter((row) => !row.passed);
+  const byReward = [...rows].sort(
+    (a, b) => Number(a.reward ?? 0) - Number(b.reward ?? 0),
+  );
+
+  const toolCounts = {};
+  const failureTools = {};
+
+  for (const row of rows) {
+    const tool = row.actualTool ?? row.tool ?? row.routedTool ?? "unknown";
+    toolCounts[tool] = (toolCounts[tool] ?? 0) + 1;
+    if (!row.passed) failureTools[tool] = (failureTools[tool] ?? 0) + 1;
+  }
+
+  const lines = [];
+  lines.push("# Harness Run Analysis");
+  lines.push("");
+  lines.push(`Run: \`${runDir}\``);
+  lines.push("");
+  lines.push(`Total cases: ${rows.length}`);
+  lines.push(`Passed: ${rows.filter((row) => row.passed).length}/${rows.length}`);
+  lines.push(
+    `Mean reward: ${
+      Number(evalData.aggregate?.meanReward ?? evalData.meanReward ?? 0).toFixed(2)
+    }`,
+  );
+  lines.push("");
+
+  lines.push("## Tool counts");
+  lines.push("");
+  for (const [tool, count] of Object.entries(toolCounts)) {
+    lines.push(`- ${tool}: ${count}`);
+  }
+  lines.push("");
+
+  if (Object.keys(failureTools).length > 0) {
+    lines.push("## Failure tools");
+    lines.push("");
+    for (const [tool, count] of Object.entries(failureTools)) {
+      lines.push(`- ${tool}: ${count}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("## Lowest reward cases");
+  lines.push("");
+  for (const row of byReward.slice(0, Math.min(10, byReward.length))) {
+    lines.push(
+      `- ${row.id}: reward=${row.reward ?? "n/a"}, passed=${row.passed}, tool=${row.actualTool ?? row.expectedTool ?? "unknown"}`,
+    );
+    if (row.failures) lines.push(`  - failures: ${row.failures}`);
+    if (Array.isArray(row.rewardReasons)) {
+      lines.push(`  - rewardReasons: ${row.rewardReasons.join("; ")}`);
+    }
+
+    const trajectory = byId.get(row.id);
+    const toolEvent = safeArray(trajectory?.trajectory).find(
+      (event) => event.type === "tool_result",
+    );
+    const criticEvent = safeArray(trajectory?.trajectory).find(
+      (event) => event.type === "critic_verdict",
+    );
+
+    if (criticEvent) {
+      lines.push(
+        `  - critic: verdict=${criticEvent.verdict}, score=${criticEvent.score}, relevance=${criticEvent.relevanceRatio}, supported=${criticEvent.supportedRatio}`,
+      );
+
+      if (safeArray(criticEvent.missingAnchors).length > 0) {
+        lines.push(`  - missingAnchors: ${criticEvent.missingAnchors.join(", ")}`);
+      }
+      if (safeArray(criticEvent.unsupportedClaims).length > 0) {
+        lines.push(`  - unsupportedClaims: ${criticEvent.unsupportedClaims.join("; ")}`);
+      }
+    }
+
+    if (toolEvent?.sourceRelevance) {
+      lines.push(`  - sourceRelevance: ${JSON.stringify(toolEvent.sourceRelevance)}`);
+
+      const groups = toolEvent.sourceRelevance.groupCoverage;
+      if (Array.isArray(groups) && groups.length > 0) {
+        lines.push("  - source groups:");
+        for (const group of groups) {
+          lines.push(
+            `    - ${group.label}: ${group.covered ? "covered" : "missing"}${group.required ? " required" : ""}`,
+          );
+        }
+      }
+    }
+
+    if (trajectory?.phase2) {
+      lines.push(`  - phase2: ${JSON.stringify(trajectory.phase2)}`);
+    }
+
+    const trace = safeArray(toolEvent?.researchTrace);
+    if (trace.length > 0) {
+      lines.push("  - researchTrace:");
+      for (const stage of trace) {
+        lines.push(
+          `    - ${stage.name ?? stage.stage ?? "?"}: ${formatMs(stage.ms ?? stage.durationMs)} ${stage.ok ?? stage.success ? "ok" : "failed"}${stage.error ? ` — ${stage.error}` : ""}`,
+        );
+      }
+    }
+  }
+
+  if (rows.length > 10) {
+    lines.push("");
+    lines.push("## All cases by reward");
+    lines.push("");
+    lines.push("| Case | Reward | Passed | Tool | Latency | Failures |");
+    lines.push("| --- | ---: | --- | --- | ---: | --- |");
+    for (const row of byReward) {
+      lines.push(
+        `| ${row.id} | ${row.reward ?? ""} | ${row.passed ? "✅" : "❌"} | ${row.actualTool ?? "?"} | ${formatMs(row.durationMs)} | ${row.failures || ""} |`,
+      );
+    }
+  }
+
+  const phase2Counts = {
+    recallUsed: 0,
+    sourceReuseUsed: 0,
+    blockedSourceAvoided: 0,
+    recoveryAttempted: 0,
+    graphContextUsed: 0,
+    graphifyRepoUsed: 0,
+    repoGraphUsed: 0,
+    graphPathUsed: 0,
+    graphReportUsed: 0,
+    graphReportExportUsed: 0,
+    memoryCuratorUsed: 0,
+    rerankerUsed: 0,
+    cacheEnabled: 0,
+    searchCacheHit: 0,
+    fetchCacheHit: 0,
+    sandboxTimedOut: 0,
+    sandboxKilled: 0,
+    sandboxStdoutTruncated: 0,
+    sandboxStderrTruncated: 0,
+    sandboxToolCallLimitHit: 0,
+    sandboxToolCallCount: 0,
+    agentExecutorUsed: 0,
+    agentStepCount: 0,
+    agentToolCallCount: 0,
+    agentTraceEventCount: 0,
+    agentDurationMs: 0,
+    progressEventCount: 0,
+  };
+  
+  let aggregatedProgressStages = new Set();
+  let aggregatedRoutingIntents = new Set();
+  let aggregatedRouteSources = new Set();
+
+  for (const trajectory of trajectories) {
+    for (const key of Object.keys(phase2Counts)) {
+      if (trajectory?.phase2?.[key]) phase2Counts[key] += 1;
+    }
+    if (Array.isArray(trajectory?.phase2?.progressStages)) {
+      for (const stage of trajectory.phase2.progressStages) {
+        aggregatedProgressStages.add(stage);
+      }
+    }
+    if (trajectory?.phase2?.routingIntent) {
+      aggregatedRoutingIntents.add(trajectory.phase2.routingIntent);
+    }
+    if (trajectory?.phase2?.routeSource) {
+      aggregatedRouteSources.add(trajectory.phase2.routeSource);
+    }
+  }
+
+  if (Object.values(phase2Counts).some((v) => v > 0) || aggregatedProgressStages.size > 0 || aggregatedRoutingIntents.size > 0) {
+    lines.push("## Phase 2 signals");
+    lines.push("");
+    for (const [key, count] of Object.entries(phase2Counts)) {
+      lines.push(`- ${key}: ${count}`);
+    }
+    if (aggregatedProgressStages.size > 0) {
+      lines.push(`- progressStages: ${[...aggregatedProgressStages].join(", ")}`);
+    }
+    if (aggregatedRoutingIntents.size > 0) {
+      lines.push(`- routingIntents: ${[...aggregatedRoutingIntents].join(", ")}`);
+    }
+    if (aggregatedRouteSources.size > 0) {
+      lines.push(`- routeSources: ${[...aggregatedRouteSources].join(", ")}`);
+    }
+    lines.push("");
+  }
+
+  const outputPath = path.join(runDir, "analysis.md");
+  await fs.writeFile(outputPath, `${lines.join("\n")}\n`);
+
+  console.log(lines.join("\n"));
+  console.log("");
+  console.log(`Wrote ${outputPath}`);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

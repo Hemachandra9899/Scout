@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ResearchContract } from "../lib/researchContract";
 
-type Tab = "summary" | "sources" | "crawl" | "evidence" | "grounding" | "raw";
+type Tab = "summary" | "sources" | "crawl" | "evidence" | "grounding" | "graph" | "raw";
 
 function safeArray<T = any>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
@@ -48,6 +48,16 @@ function host(url?: string) {
   } catch {
     return "unknown";
   }
+}
+
+function apiBaseUrl() {
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+}
+
+function downloadUrl(path?: string) {
+  if (!path) return "";
+  if (path.startsWith("http")) return path;
+  return `${apiBaseUrl()}${path}`;
 }
 
 function SummaryTab({ contract }: { contract: ResearchContract }) {
@@ -243,6 +253,115 @@ function GroundingTab({ contract }: { contract: ResearchContract }) {
   );
 }
 
+function GraphTab({ contract }: { contract: ResearchContract }) {
+  const graph = (contract.ui?.graph ?? {}) as Record<string, any>;
+  const debug = contract.debug ?? {};
+  const downloads = (graph.downloads ?? debug.graphReportDownloads ?? {}) as Record<string, string>;
+  const relationTypeCounts = (graph.relationTypeCounts ?? {}) as Record<string, number>;
+  const suggestedQuestions = safeArray<string>(graph.suggestedQuestions);
+  const highDegreeNodes = safeArray<Record<string, any>>(graph.highDegreeNodes);
+  const paths = safeArray<Record<string, any>>(graph.paths);
+  const entities = safeArray<Record<string, any>>(graph.entities);
+  const relations = safeArray<Record<string, any>>(graph.relations);
+
+  const markdownUrl = downloadUrl(downloads.markdown ?? downloads.latestMarkdown);
+  const jsonUrl = downloadUrl(downloads.json ?? downloads.latestJson);
+
+  return (
+    <div className="debugTabBody">
+      <div className="debugGrid">
+        <Pill label="Graph used" value={String(Boolean(graph.used ?? debug.graph?.used))} tone={graph.used ? "good" : "neutral"} />
+        <Pill label="Report used" value={String(Boolean(graph.reportUsed ?? debug.graphReportUsed))} tone={graph.reportUsed ? "good" : "neutral"} />
+        <Pill label="Entities" value={safeNumber(debug.graphReportNodeCount ?? debug.graph?.entityCount ?? entities.length)} />
+        <Pill label="Relations" value={safeNumber(debug.graphReportRelationCount ?? debug.graph?.relationCount ?? relations.length)} />
+        <Pill label="High-degree" value={safeNumber(debug.graphReportHighDegreeCount ?? highDegreeNodes.length)} />
+        <Pill label="Paths" value={safeNumber(debug.graphPathCount ?? debug.graph?.pathCount ?? paths.length)} />
+      </div>
+
+      {markdownUrl || jsonUrl ? (
+        <div className="debugActions">
+          {markdownUrl ? (
+            <a className="smallButton" href={markdownUrl} target="_blank" rel="noopener noreferrer">
+              Download GRAPH_REPORT.md
+            </a>
+          ) : null}
+          {jsonUrl ? (
+            <a className="smallButton" href={jsonUrl} target="_blank" rel="noopener noreferrer">
+              Download JSON
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      {Object.keys(relationTypeCounts).length > 0 ? (
+        <>
+          <h4>Relation type counts</h4>
+          <div className="debugList">
+            {Object.entries(relationTypeCounts).slice(0, 12).map(([type, count]) => (
+              <div key={type} className="debugResourceRow">
+                <b>{type}</b>
+                <small>{count} relation(s)</small>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {highDegreeNodes.length > 0 ? (
+        <>
+          <h4>High-degree nodes</h4>
+          <div className="debugList">
+            {highDegreeNodes.slice(0, 10).map((item, index) => {
+              const entity = item.entity ?? item;
+              return (
+                <div key={`${entity.id ?? entity.name ?? index}-${index}`} className="debugResourceRow">
+                  <b>{entity.name ?? "Unknown node"}</b>
+                  <small>{entity.type ?? "entity"} · degree {item.degree ?? "—"}</small>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+
+      {paths.length > 0 ? (
+        <>
+          <h4>Graph paths</h4>
+          <div className="debugList">
+            {paths.slice(0, 10).map((path, index) => {
+              const relation = safeArray<Record<string, any>>(path.relations)[0];
+              return (
+                <div key={index} className="debugResourceRow">
+                  <b>{path.source?.name ?? "source"} → {path.target?.name ?? "target"}</b>
+                  <small>{relation?.relationType ?? "relation"} · score {path.score ?? "—"}</small>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+
+      {suggestedQuestions.length > 0 ? (
+        <>
+          <h4>Suggested questions</h4>
+          <div className="debugWarnings">
+            {suggestedQuestions.slice(0, 8).map((question, index) => (
+              <div key={index} className="debugWarning">
+                {question}
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      <details className="debugDetails">
+        <summary>Raw graph payload</summary>
+        <JsonBlock value={graph} />
+      </details>
+    </div>
+  );
+}
+
 export function ResearchDebugPanel({
   contract,
 }: {
@@ -258,6 +377,7 @@ export function ResearchDebugPanel({
       { id: "crawl", label: "Crawl" },
       { id: "evidence", label: "Evidence" },
       { id: "grounding", label: "Grounding" },
+      { id: "graph", label: "Graph" },
       { id: "raw", label: "Raw" },
     ],
     [],
@@ -290,6 +410,7 @@ export function ResearchDebugPanel({
           {tab === "crawl" ? <CrawlTab contract={contract} /> : null}
           {tab === "evidence" ? <EvidenceTab contract={contract} /> : null}
           {tab === "grounding" ? <GroundingTab contract={contract} /> : null}
+          {tab === "graph" ? <GraphTab contract={contract} /> : null}
           {tab === "raw" ? (
             <div className="debugTabBody">
               <JsonBlock value={contract} />

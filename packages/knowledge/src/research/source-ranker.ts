@@ -28,6 +28,8 @@ const OFFICIAL_DOC_DOMAINS = [
   "prisma.io",
   "github.com",
   "learn.microsoft.com",
+  "blog.whatsapp.com",
+  "about.fb.com",
 ];
 
 const TRUSTED_DOC_DOMAINS = [
@@ -47,7 +49,22 @@ const COMMUNITY_DOMAINS = [
   "quora.com",
 ];
 
-const MEDIA_DOMAINS = ["youtube.com", "youtu.be"];
+const MEDIA_DOMAINS = [
+  "youtube.com",
+  "youtu.be",
+  "techcrunch.com",
+  "theverge.com",
+  "wired.com",
+  "thehackernews.com",
+  "bleepingcomputer.com",
+  "theregister.com",
+  "arstechnica.com",
+  "zdnet.com",
+  "cnet.com",
+  "9to5mac.com",
+  "malwarebytes.com",
+  "blog.google",
+];
 
 const FRESHNESS_QUERY_PATTERN =
   /\b(latest|current|recent|today|now|new|updated|202[4-9]|version|changelog|release|pricing|rate limit|deprecated|deprecation)\b/i;

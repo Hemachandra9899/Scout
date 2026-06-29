@@ -1,180 +1,210 @@
-import { loadPyodide } from "pyodide";
 import type {
   PythonExecutionResult,
+  SandboxBudget,
+  SandboxSafetyDebug,
   SubAgentHandler,
   ToolHandler,
 } from "../types.ts";
+import { executePythonInProcess } from "./pythonSandboxCore.ts";
+import type {
+  PythonSandboxWorkerRequest,
+  PythonSandboxWorkerResponse,
+} from "./pythonSandboxWorkerProtocol.ts";
 
-let pyodidePromise: Promise<any> | null = null;
+const DEFAULT_SANDBOX_BUDGET: SandboxBudget = {
+  timeoutMs: 30_000,
+  maxStdoutChars: 20_000,
+  maxStderrChars: 10_000,
+  maxToolCalls: 12,
+};
 
-async function getPyodide() {
-  if (!pyodidePromise) {
-    pyodidePromise = loadPyodide();
-  }
-  return pyodidePromise;
+function resolveBudget(input?: Partial<SandboxBudget>): SandboxBudget {
+  return { ...DEFAULT_SANDBOX_BUDGET, ...(input ?? {}) };
 }
+
+function sandboxIsolationMode(): "worker" | "in_process" {
+  const mode = Deno.env.get("RLM_SANDBOX_ISOLATION_MODE");
+  if (mode === "in_process") return "in_process";
+  return "worker";
+}
+
+function createTimeoutResult(budget: SandboxBudget): PythonExecutionResult {
+  return {
+    stdout: "",
+    stderr: "",
+    final: null,
+    finalCalled: false,
+    error: `Sandbox worker execution timed out after ${budget.timeoutMs}ms and was terminated.`,
+    toolCalls: [],
+    safety: {
+      budget,
+      timedOut: true,
+      killed: true,
+      stdoutSize: 0,
+      stderrSize: 0,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      toolCallCount: 0,
+      toolCallLimitHit: false,
+      isolationMode: "worker",
+    },
+  };
+}
+
+function createErrorResult(
+  budget: SandboxBudget,
+  errorMessage: string,
+): PythonExecutionResult {
+  return {
+    stdout: "",
+    stderr: "",
+    final: null,
+    finalCalled: false,
+    error: errorMessage,
+    toolCalls: [],
+    safety: {
+      budget,
+      timedOut: false,
+      killed: true,
+      stdoutSize: 0,
+      stderrSize: 0,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      toolCallCount: 0,
+      toolCallLimitHit: false,
+      isolationMode: "worker",
+    },
+  };
+}
+
+function extractSafety(
+  result: PythonExecutionResult,
+  budget: SandboxBudget,
+  overrides: Partial<SandboxSafetyDebug>,
+): SandboxSafetyDebug | undefined {
+  if (!result.safety) return undefined;
+  return { ...result.safety, ...overrides, budget: result.safety.budget ?? budget };
+}
+
+async function executePythonInWorker(input: {
+  code: string;
+  budget: SandboxBudget;
+}): Promise<PythonExecutionResult> {
+  const workerUrl = new URL("./pythonSandboxWorker.ts", import.meta.url).href;
+  const worker = new Worker(workerUrl, { type: "module" });
+
+  const requestId = crypto.randomUUID();
+
+  return await new Promise<PythonExecutionResult>((resolve) => {
+    let settled = false;
+
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+
+      try {
+        worker.terminate();
+      } catch {
+        // ignore terminate error
+      }
+
+      resolve(createTimeoutResult(input.budget));
+    }, input.budget.timeoutMs);
+
+    worker.onerror = (event) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+
+      try {
+        worker.terminate();
+      } catch {
+        // ignore terminate error
+      }
+
+      resolve(createErrorResult(input.budget, event.message || "Sandbox worker error."));
+    };
+
+    worker.onmessage = (event: MessageEvent<PythonSandboxWorkerResponse>) => {
+      const response = event.data;
+
+      if (response.id !== requestId || settled) return;
+
+      settled = true;
+      clearTimeout(timeout);
+
+      try {
+        worker.terminate();
+      } catch {
+        // ignore terminate error
+      }
+
+      if (response.ok) {
+        resolve({
+          ...response.result,
+          safety: extractSafety(response.result, input.budget, {
+            killed: false,
+            isolationMode: "worker",
+          }),
+        });
+        return;
+      }
+
+      resolve(createErrorResult(input.budget, response.error));
+    };
+
+    const request: PythonSandboxWorkerRequest = {
+      id: requestId,
+      code: input.code,
+      budget: input.budget,
+    };
+
+    worker.postMessage(request);
+  });
+}
+
+type ExecuteOptions = {
+  budget?: Partial<SandboxBudget>;
+  subAgentHandler?: SubAgentHandler;
+  toolHandler?: ToolHandler;
+};
 
 export class PythonSandbox {
   async execute(
     code: string,
-    subAgentHandler: SubAgentHandler,
-    toolHandler: ToolHandler
+    optionsOrHandler?: ExecuteOptions | SubAgentHandler,
+    legacyToolHandler?: ToolHandler,
   ): Promise<PythonExecutionResult> {
-    const pyodide = await getPyodide();
-
-    pyodide.globals.set(
-      "_rlm_query_js",
-      async (prompt: string, context: unknown) => {
-        return await subAgentHandler(String(prompt), context);
-      }
-    );
-
-    pyodide.globals.set(
-      "_rlm_tool_js",
-      async (name: string, args: unknown) => {
-        return await toolHandler(String(name), args as Record<string, unknown>);
-      }
-    );
-
-    const wrappedCode = `
-import sys
-import io
-import json
-import traceback
-from pyodide.ffi import to_js
-
-_rlm_stdout = io.StringIO()
-_rlm_final_called = False
-_rlm_final_value = None
-_rlm_error = None
-_rlm_tool_calls = []
-
-def _to_py(value):
-    try:
-        return value.to_py()
-    except Exception:
-        return value
-
-async def llm_query(prompt, context=None):
-    result = await _rlm_query_js(prompt, to_js(context or {}))
-    return _to_py(result)
-
-async def crawl_url(url, max_pages=1):
-    _rlm_tool_calls.append("crawl_url")
-    result = await _rlm_tool_js("crawl_url", to_js({
-        "url": url,
-        "maxPages": max_pages
-    }))
-    return _to_py(result)
-
-async def search_kb(query, top_k=5):
-    _rlm_tool_calls.append("search_kb")
-    result = await _rlm_tool_js("search_kb", to_js({
-        "query": query,
-        "topK": top_k
-    }))
-
-    data = _to_py(result)
-
-    if isinstance(data, dict) and "results" in data:
-        return data["results"]
-
-    return data
-
-async def web_research(query, max_results=3, max_pages_per_source=1, max_total_pages=5, max_depth=1):
-    _rlm_tool_calls.append("web_research")
-    result = await _rlm_tool_js("web_research", to_js({
-        "query": query,
-        "maxResults": max_results,
-        "maxPagesPerSource": max_pages_per_source,
-        "maxTotalPages": max_total_pages,
-        "maxDepth": max_depth,
-        "useOrchestrator": True
-    }))
-    return _to_py(result)
-
-async def github_repo(url, mode="summary", max_files=30):
-    _rlm_tool_calls.append("github_repo")
-    result = await _rlm_tool_js("github_repo", to_js({"url": url, "mode": mode, "maxFiles": max_files}))
-    return _to_py(result)
-
-async def query_graph(query, depth=1):
-    _rlm_tool_calls.append("query_graph")
-    result = await _rlm_tool_js("query_graph", to_js({
-        "query": query,
-        "depth": depth
-    }))
-
-    data = _to_py(result)
-
-    if isinstance(data, dict):
-        return {
-            "entities": data.get("entities", []),
-            "relations": data.get("relations", []),
-            "raw": data,
-        }
-
-    return data
-
-def final(value=None):
-    global _rlm_final_called, _rlm_final_value
-    _rlm_final_called = True
-    _rlm_final_value = value
-
-def _rlm_to_jsonable(value):
-    try:
-        json.dumps(value)
-        return value
-    except Exception:
-        return str(value)
-
-async def _rlm_user_main():
-${this.indent(code)}
-
-_old_stdout = sys.stdout
-sys.stdout = _rlm_stdout
-
-try:
-    await _rlm_user_main()
-except Exception:
-    _rlm_error = traceback.format_exc()
-finally:
-    sys.stdout = _old_stdout
-
-json.dumps({
-    "stdout": _rlm_stdout.getvalue(),
-    "final": _rlm_to_jsonable(_rlm_final_value),
-    "finalCalled": _rlm_final_called,
-    "error": _rlm_error,
-    "toolCalls": _rlm_tool_calls
-})`;
-
-    try {
-      const raw = await pyodide.runPythonAsync(wrappedCode);
-      const parsed = JSON.parse(String(raw));
-
-      return {
-        stdout: String(parsed.stdout ?? ""),
-        final: parsed.final ?? null,
-        finalCalled: Boolean(parsed.finalCalled),
-        error: parsed.error ?? null,
-        toolCalls: Array.isArray(parsed.toolCalls) ? parsed.toolCalls.map(String) : [],
-      };
-    } catch (error) {
-      return {
-        stdout: "",
-        final: null,
-        finalCalled: false,
-        error: error instanceof Error ? error.message : String(error),
-        toolCalls: [],
-      };
+    let options: ExecuteOptions;
+    if (typeof optionsOrHandler === "function") {
+      options = { subAgentHandler: optionsOrHandler, toolHandler: legacyToolHandler };
+    } else {
+      options = optionsOrHandler ?? {};
     }
-  }
 
-  private indent(code: string): string {
-    return code
-      .split("\n")
-      .map((line) => `    ${line}`)
-      .join("\n");
+    const budget = resolveBudget(options.budget);
+
+    if (sandboxIsolationMode() === "in_process") {
+      return executePythonInProcess({
+        code,
+        budget,
+        subAgentHandler: options.subAgentHandler,
+        toolHandler: options.toolHandler,
+      });
+    }
+
+    if (options.subAgentHandler || options.toolHandler) {
+      return executePythonInProcess({
+        code,
+        budget,
+        subAgentHandler: options.subAgentHandler,
+        toolHandler: options.toolHandler,
+      });
+    }
+
+    return executePythonInWorker({
+      code,
+      budget,
+    });
   }
 }

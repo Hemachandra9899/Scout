@@ -1,0 +1,14 @@
+{
+  "id": "kb-lookup-001",
+  "query": "Search the project knowledge base for Scout architecture and summarize the main components",
+  "intent": "kb_lookup",
+  "expectedTier": 1,
+  "expectedTool": "search_kb",
+  "mustMention": ["architecture", "components"],
+  "mustNotClaim": ["iOS-only app", "game engine"],
+  "referenceAnswer": "A good answer should summarize the project architecture from stored KB/project documents.",
+  "minGroundedRatio": 0,
+  "minCorrectness": 0.6,
+  "minCompleteness": 0.5,
+  "maxLatencyMs": 90000
+}

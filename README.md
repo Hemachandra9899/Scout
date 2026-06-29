@@ -9,9 +9,9 @@
 ╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   
 ```
 
-**A recursive AI research operating system.**
+**An evidence-first AI research engine with scoped memory.**
 
-Not a chatbot. A research engine that plans, searches, crawls, verifies, remembers, and answers with evidence.
+Not a chatbot. Scout plans, searches, crawls, verifies, remembers useful context, and answers with evidence.
 
 <br/>
 
@@ -81,6 +81,26 @@ You ask a question
 ```
 
 Scout does not just generate. It researches, indexes, verifies, remembers — and then answers.
+
+---
+
+## Current Capabilities
+
+| Capability | Status |
+|---|---|
+| Tiered router | Complete |
+| Evidence-first web research | Complete |
+| GitHub repo analysis | Complete |
+| Knowledge-base retrieval | Complete |
+| Faithfulness critic | Complete |
+| Eval harness + CI gate | Complete |
+| Scoped memory recall | Complete |
+| Blocked source memory | Complete |
+| Source reuse | Complete |
+| Bounded evidence recovery | Complete |
+| Graph context | Complete |
+| MCP/connectors | Later |
+| Recursion/self-healing | Later |
 
 ---
 
@@ -169,6 +189,43 @@ failed crawls      → source_failure
 
 This lets Scout improve across runs without hiding the evidence trail.
 
+### Scoped Memory Recall
+
+Phase 2.1 adds scoped memory recall to the router path.
+
+Scout can now:
+
+```text
+- write explicit user preferences from setup/user messages
+- write blocked/untrusted source memories
+- recall relevant user/project/source memories before answering
+- inject memory into KB/direct-model prompts safely
+- avoid leaking unrelated user memories into other runs
+- expose debug.memory signals for the harness
+```
+
+Debug signals:
+
+```text
+recallUsed
+recalledCount
+recalledKinds
+blockedSourceAvoided
+sourceReuseUsed
+setupWritten
+recoveryAttempted
+graphContextUsed
+```
+
+Memory isolation:
+
+```text
+with userId    → user memories + global memories
+without userId → only global memories
+```
+
+Memory is not treated as evidence unless it is backed by durable facts/citations.
+
 ---
 
 ## Architecture
@@ -192,27 +249,27 @@ This lets Scout improve across runs without hiding the evidence trail.
 ```
 scout/
 ├── apps/
-│   ├── api/                    # Fastify API
-│   ├── model-service/          # FastAPI + Scrapling service
-│   ├── rlm-runtime/            # Runtime / tool execution layer
-│   ├── web/                    # Frontend UI
-│   └── worker/                 # Background worker
+│   ├── api/                    # Fastify API, router, tools, critic
+│   ├── model-service/          # FastAPI + Scrapling/model utilities
+│   ├── rlm-runtime/            # Sandbox/tool runtime
+│   ├── web/                    # Next.js frontend
+│   └── worker/                 # BullMQ worker
 │
 ├── packages/
-│   ├── knowledge/              # Research engine, agents, memory, evidence
-│   ├── retrieval/              # Vector retrieval abstractions
-│   ├── database/               # Prisma client / DB utilities
-│   ├── clients/                # Shared service clients
+│   ├── knowledge/              # Research engine, memory, evidence, synthesis
+│   ├── retrieval/              # Vector retrieval over project documents
+│   ├── database/               # Prisma/Postgres client
+│   ├── clients/                # Shared clients
 │   └── queue/                  # Queue helpers
 │
+├── harness/
+│   └── eval/                   # Phase 1 and Phase 2 eval harness
+│
+├── harness-runs/               # Local eval outputs, gitignored
+├── docs/                       # Architecture, harness, phase summaries
+├── scripts/                    # Maintenance and cleanup scripts
 ├── prisma/
 │   └── schema.prisma
-│
-├── scripts/
-│   └── dev-patches/
-│
-├── docker-compose.yml
-├── run.sh
 └── README.md
 ```
 
@@ -248,6 +305,14 @@ Add-only memory layer.
 memory-manager.ts     memory-types.ts
 ```
 
+### `packages/knowledge/src/graph/`
+
+Deterministic project entity graph for architecture/component queries.
+
+```
+project-context-graph.ts
+```
+
 ---
 
 ## Getting Started
@@ -276,6 +341,42 @@ chmod +x ./run.sh
 
 ```bash
 npm run prisma:generate
+```
+
+---
+
+## Harness Commands
+
+Run Phase 1 eval:
+
+```bash
+npm run eval
+```
+
+Run CI gate:
+
+```bash
+npm run eval:ci
+```
+
+Run Phase 2 memory/context evals:
+
+```bash
+npm run eval:phase2
+```
+
+Analyze a run:
+
+```bash
+LATEST=$(ls -td harness-runs/* | head -1)
+npm run eval:analyze -- "$LATEST"
+cat "$LATEST/analysis.md"
+```
+
+Clear harness memory for an eval project:
+
+```bash
+EVAL_PROJECT_ID=<PROJECT_ID> node scripts/clear-harness-memory.mjs
 ```
 
 ---
@@ -415,31 +516,42 @@ Search providers are optional. Scout uses whatever is configured and deduplicate
 
 ## Roadmap
 
-### Now
+### Complete
 
-- [ ] Add tests for evidence extraction
-- [ ] Add tests for citation verification
-- [ ] Add tests for memory-aware ranking
-- [ ] Add tests for answer mode detection
-- [ ] Add tests for answer renderers
-- [ ] Add UI support for `answer.markdown`
-- [ ] Add source drawer for `answer.citations`
+- [x] Tiered router
+- [x] Evidence-first ResearchOrchestrator
+- [x] Source relevance gate
+- [x] News/API/comparison query handling
+- [x] Faithfulness critic
+- [x] Harness v2 with reward + trajectories
+- [x] CI eval gate
+- [x] Scoped memory recall
+- [x] Blocked source memory
 
-### Next
+### Complete
 
-- [ ] Add optional LLM polish constrained only to `EvidencePack`
-- [ ] Add source freshness and diversity scoring
-- [ ] Add multi-provider search abstraction
-- [ ] Add durable fact retrieval into answer synthesis
-- [ ] Add GraphAgent after evidence and answer layers are stable
+- [x] Scoped memory recall
+- [x] Blocked source memory
+- [x] Source reuse from prior research
+- [x] Expose `sourceReuseUsed=true`
+- [x] Bounded evidence recovery
+- [x] Expose `recoveryAttempted=true`
+- [x] Add targeted recovery eval pass
+- [x] Lightweight project/entity graph
+- [x] Expose `graphContextUsed=true`
+- [x] Add Phase 2.4 targeted eval pass
+- [x] Memo Repo / Remember Repo memory
+- [x] Expose `memoRepoUsed=true`
+- [x] Add Phase 2.5 targeted eval passes
+
+### Next: Phase 3
+
+- [ ] Graphify/Graphiti-style repo graph
 
 ### Later
 
-- [ ] Add SKILL.md-style lightweight prompt agents
-- [ ] Add hierarchical CoordinatorAgent
-- [ ] Add private connectors for GitHub, Notion, Slack, Google Drive
-- [ ] Add entity-claim graph visualization
-- [ ] Add streaming traces for each research stage
+- [ ] MCP/connectors with safety rules
+- [ ] Recursion only after eval proves the need
 
 ---
 
@@ -543,7 +655,7 @@ BENCHMARK_MAX_QUERIES=3 npm run benchmark:research
 Outputs are written to:
 
 ```text
-benchmark-runs/<timestamp>/
+harness-runs/<timestamp>/
 ```
 
 The runner validates:

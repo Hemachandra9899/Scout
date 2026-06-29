@@ -36,26 +36,30 @@ function makeBudget(
 }
 
 const DEFAULT_BUDGETS: ProviderBudgets = {
-  firecrawl: { maxResults: 6, enabled: true },
+  firecrawl: { maxResults: 6, enabled: false },
   tavily: { maxResults: 10, enabled: true },
   github: { maxResults: 8, enabled: true },
+  local_fetch: { maxResults: 4, enabled: true },
 };
 
 const ROUTE_BUDGETS: RouteBudgets = {
   docs: {
-    firecrawl: { maxResults: 6, enabled: true },
+    firecrawl: { maxResults: 6, enabled: false },
     tavily: { maxResults: 8, enabled: true },
     github: { maxResults: 3, enabled: false },
+    local_fetch: { maxResults: 4, enabled: true },
   },
   freshness: {
-    firecrawl: { maxResults: 4, enabled: true },
+    firecrawl: { maxResults: 4, enabled: false },
     tavily: { maxResults: 10, enabled: true },
     github: { maxResults: 3, enabled: false },
+    local_fetch: { maxResults: 4, enabled: true },
   },
   code: {
-    firecrawl: { maxResults: 4, enabled: true },
+    firecrawl: { maxResults: 4, enabled: false },
     tavily: { maxResults: 6, enabled: true },
     github: { maxResults: 10, enabled: true },
+    local_fetch: { maxResults: 3, enabled: true },
   },
 };
 
