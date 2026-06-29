@@ -10,6 +10,12 @@ import { MessageContent } from "../components/MessageContent";
 import { SourcesPanel } from "../components/SourcesPanel";
 import { RunProgress } from "../components/RunProgress";
 import { ResearchDebugPanel } from "../components/ResearchDebugPanel";
+import { Sidebar } from "../components/Sidebar";
+import { Composer } from "../components/Composer";
+import { AccountMenu } from "../components/AccountMenu";
+import { SettingsModal } from "../components/SettingsModal";
+import { AppsMenu } from "../components/AppsMenu";
+import { ComposerPlusMenu } from "../components/ComposerPlusMenu";
 import { useProjects, useCreateProject } from "../hooks/useProjects";
 import { useProjectJobs } from "../hooks/useProjectJobs";
 import { useProjectDocuments } from "../hooks/useDocuments";
@@ -156,6 +162,9 @@ export default function Home() {
     "Explain what Scout is in simple words.",
   );
   const [error, setError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
 
   const { data: deps = {} } = useQuery({
     queryKey: ["health", "deps"],
@@ -307,103 +316,22 @@ export default function Home() {
 
   return (
     <main className="app-container">
-      <aside className={`side ${sidebarOpen ? "" : "collapsed"}`}>
-        <div className="side-header">
-          <div className="brand">
-            <h1>Scout</h1>
-            
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", width: sidebarOpen ? "250px" : "0px", overflow: "hidden", flexShrink: 0, transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+        <Sidebar
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          conversations={conversations}
+          activeConversationId={activeConversationId}
+          sidebarOpen={sidebarOpen}
+          onNewChat={handleNewChat}
+          onSelectProject={setSelectedProjectId}
+          onSelectConversation={selectConversation}
+          onToggle={() => setSidebarOpen(false)}
+        />
+        <div style={{ marginTop: "auto", borderTop: "1px solid var(--line)" }}>
+          <AccountMenu onOpenSettings={() => setSettingsOpen(true)} />
         </div>
-
-        <div className="side-content">
-          <button className="primaryButton" onClick={handleNewChat}>
-            + New Chat
-          </button>
-
-          <div className="section">
-            <label>Current Project</label>
-            <input
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              placeholder="Project name"
-            />
-            <button
-              className="smallButton"
-              onClick={createProject}
-              style={{ marginTop: "4px" }}
-            >
-              Update / Create Project
-            </button>
-          </div>
-
-          <div className="section">
-            <label>All Projects</label>
-            <div className="list">
-              {projects.map((project) => (
-                <button
-                  key={project.id}
-                  className={
-                    project.id === selectedProjectId ? "item active" : "item"
-                  }
-                  onClick={() => setSelectedProjectId(project.id)}
-                >
-                  <span>{project.name}</span>
-                  <small>{shortId(project.id)}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {selectedProjectId ? (
-            <>
-              <FileUploadPanel projectId={selectedProjectId} />
-              <DocumentsPanel
-                documents={documents}
-                onAskDocument={(doc) => {
-                  const title = doc.title || doc.sourceUrl || "the uploaded document";
-                  setQuestion(
-                    `Using the uploaded document "${title}", summarize the key points and answer with sources.`,
-                  );
-                }}
-              />
-            </>
-          ) : null}
-
-          <div className="section" style={{ flex: 1, minHeight: "150px" }}>
-            <label>Chat History</label>
-            <div className="list" style={{ overflowY: "auto", maxHeight: "250px" }}>
-              {conversations.length === 0 ? (
-                <div style={{ color: "var(--muted)", padding: "4px" }}>
-                  No conversations yet.
-                </div>
-              ) : (
-                conversations.map((conv) => (
-                  <button
-                    key={conv.id}
-                    className={
-                      conv.id === activeConversationId ? "item active" : "item"
-                    }
-                    onClick={() => selectConversation(conv.id)}
-                  >
-                    <span>{conv.title || "Chat"}</span>
-                    <small>✓</small>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="side-footer">
-          <button
-            className="collapse-btn"
-            onClick={() => setSidebarOpen(false)}
-            title="Collapse sidebar"
-          >
-            ◀ Collapse
-          </button>
-        </div>
-      </aside>
+      </div>
 
       <section className="chat-container">
         <header className="chatHeader">
@@ -414,7 +342,9 @@ export default function Home() {
                 onClick={() => setSidebarOpen(true)}
                 title="Expand sidebar"
               >
-                ☰
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
               </button>
             )}
             <div className="header-title">
@@ -423,24 +353,6 @@ export default function Home() {
                 {activeConversationId ? "Chat" : "Scout Playground"}
               </h2>
             </div>
-          </div>
-
-          <div className="mode-toggle-container">
-            <span className={`mode-label ${!devMode ? "active" : ""}`}>
-              Chat
-            </span>
-            <div
-              className={`mode-switch ${devMode ? "active" : ""}`}
-              onClick={() => setDevMode(!devMode)}
-              title="Toggle Chat / Dev Workflow Mode"
-            >
-              <div className="mode-switch-handle">
-                {devMode ? "</>" : "💬"}
-              </div>
-            </div>
-            <span className={`mode-label ${devMode ? "active" : ""}`}>
-              Dev
-            </span>
           </div>
 
           <div className="header-right">
@@ -458,9 +370,7 @@ export default function Home() {
             </div>
             <button
               className="theme-toggle-btn"
-              onClick={() =>
-                setTheme(theme === "dark" ? "light" : "dark")
-              }
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             >
               {theme === "dark" ? "☀ Light" : "☾ Dark"}
             </button>
@@ -517,31 +427,19 @@ export default function Home() {
                     <div className="presets-container">
                       <button
                         className="preset-pill"
-                        onClick={() =>
-                          setQuestion(
-                            "Deep search recursive runtime logs",
-                          )
-                        }
+                        onClick={() => setQuestion("Deep search recursive runtime logs")}
                       >
                         Search
                       </button>
                       <button
                         className="preset-pill"
-                        onClick={() =>
-                          setQuestion(
-                            "Extract structured entities from data sources",
-                          )
-                        }
+                        onClick={() => setQuestion("Extract structured entities from data sources")}
                       >
                         Extract
                       </button>
                       <button
                         className="preset-pill"
-                        onClick={() =>
-                          setQuestion(
-                            "Crawl nested API documentations recursively",
-                          )
-                        }
+                        onClick={() => setQuestion("Crawl nested API documentations recursively")}
                       >
                         Crawl
                       </button>
@@ -558,289 +456,74 @@ export default function Home() {
               <div className="workflow-canvas">
                 {createResearchJob.isPending && (
                   <>
-                    <div
-                      className="cloud-code-particle"
-                      style={{ left: "42%", animationDelay: "0s" }}
-                    >
+                    <div className="cloud-code-particle" style={{ left: "42%", animationDelay: "0s" }}>
                       {"const rlm = new RLM()"}
                     </div>
-                    <div
-                      className="cloud-code-particle"
-                      style={{ left: "56%", animationDelay: "1.5s" }}
-                    >
+                    <div className="cloud-code-particle" style={{ left: "56%", animationDelay: "1.5s" }}>
                       {"qdrant.query({ text })"}
                     </div>
-                    <div
-                      className="cloud-code-particle"
-                      style={{ left: "48%", animationDelay: "3s" }}
-                    >
+                    <div className="cloud-code-particle" style={{ left: "48%", animationDelay: "3s" }}>
                       {"redis.set(cache_key)"}
                     </div>
-                    <div
-                      className="cloud-code-particle"
-                      style={{ left: "52%", animationDelay: "4.5s" }}
-                    >
+                    <div className="cloud-code-particle" style={{ left: "52%", animationDelay: "4.5s" }}>
                       {"agent.reason(task)"}
                     </div>
                   </>
                 )}
 
                 <div className="workflow-nodes">
-                  <div
-                    className={`flow-card-wrapper ${stages.output ? "visible" : ""}`}
-                  >
-                    <div
-                      className={`flow-card ${stages.active === "output" ? "active" : ""}`}
-                    >
-                      <div
-                        className="flow-card-icon"
-                        style={{ backgroundColor: "var(--lime)" }}
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#000"
-                          strokeWidth="2.5"
-                        >
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                          <line x1="16" y1="13" x2="8" y2="13" />
-                          <line x1="16" y1="17" x2="8" y2="17" />
-                        </svg>
-                      </div>
-                      <div className="flow-card-body">
-                        <div className="flow-card-title">OUTPUT REPORT</div>
-                        <div className="flow-card-desc">
-                          Final Knowledge Summary
+                  {[
+                    { key: "output", color: "var(--lime)", icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", children: "M14 2 14 8 20 8 M16 13H8 M16 17H8", title: "OUTPUT REPORT", desc: "Final Knowledge Summary" },
+                    { key: "rlm", color: "var(--pink)", icon: "M13 2 3 14 12 14 11 22 21 10 12 10 13 2", children: "", title: "RLM RUNTIME", desc: "Recursive Execution Loop" },
+                    { key: "vector", color: "var(--orange)", icon: "M12 5C7.34 5 3 5.9 3 7v4c0 1.66 4 3 9 3s9-1.34 9-3V7", children: "M3 12c0 1.66 4 3 9 3s9-1.34 9-3", title: "VECTOR RETRIEVE", desc: "Qdrant DB & Cache Query" },
+                    { key: "agent", color: "var(--cyan)", icon: "M12 2a4 4 0 0 0-4 4v1H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z", children: "M12 11v6M9 14h6", title: "AGENT PLANNER", desc: "Reasoning Task Planning" },
+                    { key: "query", color: "var(--lime)", icon: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", children: "", title: "QUERY INPUT", desc: activeJob ? activeJob.question.slice(0, 25) + (activeJob.question.length > 25 ? "..." : "") : "Idle" },
+                  ].map((card, idx) => (
+                    <div key={card.key}>
+                      <div className={`flow-card-wrapper ${stages[card.key] ? "visible" : ""}`}>
+                        <div className={`flow-card ${stages.active === card.key ? "active" : ""}`}>
+                          <div className="flow-card-icon" style={{ backgroundColor: card.color }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5">
+                              <path d={card.icon} />
+                              {card.children && <><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" /></>}
+                            </svg>
+                          </div>
+                          <div className="flow-card-body">
+                            <div className="flow-card-title">{card.title}</div>
+                            <div className="flow-card-desc">{card.desc}</div>
+                          </div>
+                          {stages.active === card.key && (
+                            <div className="flow-card-tag" style={{ backgroundColor: card.color }}>
+                              {card.key === "query" ? "User Query" : card.key === "agent" ? "Agent Planning" : card.key === "vector" ? "DB Fetching" : card.key === "rlm" ? "RLM Loop" : "Completed"}
+                            </div>
+                          )}
                         </div>
                       </div>
-                      {stages.active === "output" && (
-                        <div
-                          className="flow-card-tag"
-                          style={{ backgroundColor: "var(--lime)" }}
-                        >
-                          Completed
-                        </div>
-                      )}
+                      {idx < 4 && stages[card.key] && <div className="flow-connector" />}
                     </div>
-                  </div>
-
-                  {stages.output && <div className="flow-connector" />}
-
-                  <div
-                    className={`flow-card-wrapper ${stages.rlm ? "visible" : ""}`}
-                  >
-                    <div
-                      className={`flow-card ${stages.active === "rlm" ? "active" : ""}`}
-                    >
-                      <div
-                        className="flow-card-icon"
-                        style={{ backgroundColor: "var(--pink)" }}
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#000"
-                          strokeWidth="2.5"
-                        >
-                          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                        </svg>
-                      </div>
-                      <div className="flow-card-body">
-                        <div className="flow-card-title">RLM RUNTIME</div>
-                        <div className="flow-card-desc">
-                          Recursive Execution Loop
-                        </div>
-                      </div>
-                      {stages.active === "rlm" && (
-                        <div
-                          className="flow-card-tag"
-                          style={{ backgroundColor: "var(--pink)" }}
-                        >
-                          RLM Loop
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {stages.rlm && <div className="flow-connector" />}
-
-                  <div
-                    className={`flow-card-wrapper ${stages.vector ? "visible" : ""}`}
-                  >
-                    <div
-                      className={`flow-card ${stages.active === "vector" ? "active" : ""}`}
-                    >
-                      <div
-                        className="flow-card-icon"
-                        style={{ backgroundColor: "var(--orange)" }}
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#000"
-                          strokeWidth="2.5"
-                        >
-                          <ellipse cx="12" cy="5" rx="9" ry="3" />
-                          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-                          <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
-                        </svg>
-                      </div>
-                      <div className="flow-card-body">
-                        <div className="flow-card-title">
-                          VECTOR RETRIEVE
-                        </div>
-                        <div className="flow-card-desc">
-                          Qdrant DB & Cache Query
-                        </div>
-                      </div>
-                      {stages.active === "vector" && (
-                        <div
-                          className="flow-card-tag"
-                          style={{ backgroundColor: "var(--orange)" }}
-                        >
-                          DB Fetching
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {stages.vector && <div className="flow-connector" />}
-
-                  <div
-                    className={`flow-card-wrapper ${stages.agent ? "visible" : ""}`}
-                  >
-                    <div
-                      className={`flow-card ${stages.active === "agent" ? "active" : ""}`}
-                    >
-                      <div
-                        className="flow-card-icon"
-                        style={{ backgroundColor: "var(--cyan)" }}
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#000"
-                          strokeWidth="2.5"
-                        >
-                          <circle cx="12" cy="12" r="3" />
-                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                        </svg>
-                      </div>
-                      <div className="flow-card-body">
-                        <div className="flow-card-title">
-                          AGENT PLANNER
-                        </div>
-                        <div className="flow-card-desc">
-                          Reasoning Task Planning
-                        </div>
-                      </div>
-                      {stages.active === "agent" && (
-                        <div
-                          className="flow-card-tag"
-                          style={{ backgroundColor: "var(--cyan)" }}
-                        >
-                          Agent Planning
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {stages.agent && <div className="flow-connector" />}
-
-                  <div
-                    className={`flow-card-wrapper ${stages.query ? "visible" : ""}`}
-                  >
-                    <div
-                      className={`flow-card ${stages.active === "query" ? "active" : ""}`}
-                    >
-                      <div
-                        className="flow-card-icon"
-                        style={{ backgroundColor: "var(--lime)" }}
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#000"
-                          strokeWidth="2.5"
-                        >
-                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                        </svg>
-                      </div>
-                      <div className="flow-card-body">
-                        <div className="flow-card-title">QUERY INPUT</div>
-                        <div className="flow-card-desc">
-                          {activeJob
-                            ? activeJob.question.slice(0, 25) +
-                              (activeJob.question.length > 25 ? "..." : "")
-                            : "Idle"}
-                        </div>
-                      </div>
-                      {stages.active === "query" && (
-                        <div
-                          className="flow-card-tag"
-                          style={{ backgroundColor: "var(--lime)" }}
-                        >
-                          User Query
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             )}
 
-            <footer className="composer-wrapper">
-              <div className="composer-box">
-                <textarea
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  placeholder="Ask Scout anything..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage(question);
-                    }
-                  }}
-                />
-                <div className="composer-actions">
-                  <div className="composer-left-actions">
-                    <button
-                      className="composer-btn"
-                      title="Attach Files"
-                    >
-                      📎
-                    </button>
-                    <button
-                      className="composer-btn"
-                      title="Clear input"
-                      onClick={() => setQuestion("")}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <button
-                    className="generate-btn"
-                    onClick={() => sendMessage(question)}
-                    disabled={
-                      createResearchJob.isPending || !question.trim()
-                    }
-                  >
-                    {createResearchJob.isPending ? "Running..." : "Generate"}
-                  </button>
-                </div>
-              </div>
-            </footer>
+            <div style={{ position: "relative" }}>
+              <ComposerPlusMenu
+                open={plusMenuOpen}
+                onClose={() => setPlusMenuOpen(false)}
+                onAction={(action) => {
+                  if (action === "agent-mode") {
+                    setQuestion("Use agent executor to " + question || "research this topic");
+                  }
+                }}
+              />
+              <Composer
+                value={question}
+                onChange={setQuestion}
+                onSend={() => sendMessage(question)}
+                onOpenPlusMenu={() => setPlusMenuOpen(true)}
+                disabled={createResearchJob.isPending}
+              />
+            </div>
           </div>
 
           {devMode && (
