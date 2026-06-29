@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { uploadMemorySchema } from "./memories.schema.js";
+import { uploadMemorySchema, listMemoriesQuerySchema } from "./memories.schema.js";
 import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemoryDraft } from "@rlm-forge/knowledge/memory/memory-types.js";
+import { prisma } from "@rlm-forge/database/prisma.js";
 
 const memoryManager = new MemoryManager();
 
@@ -26,5 +27,25 @@ export async function memoriesRouter(app: FastifyInstance) {
 
     const written = await memoryManager.addMany([draft]);
     return { written };
+  });
+
+  app.get("/memories", async (req) => {
+    const query = listMemoriesQuerySchema.parse(req.query);
+
+    const where: Record<string, unknown> = { projectId: query.projectId };
+    if (query.kind) where.kind = query.kind;
+    if (query.scope) where.scope = query.scope;
+
+    const [memories, total] = await Promise.all([
+      prisma.memory.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: query.limit,
+        skip: query.offset,
+      }),
+      prisma.memory.count({ where }),
+    ]);
+
+    return { memories, total };
   });
 }

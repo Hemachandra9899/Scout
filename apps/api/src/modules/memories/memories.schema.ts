@@ -11,3 +11,11 @@ export const uploadMemorySchema = z.object({
   entities: z.array(z.string()).optional(),
   metadata: z.record(z.unknown()).optional(),
 });
+
+export const listMemoriesQuerySchema = z.object({
+  projectId: z.string().uuid(),
+  kind: z.string().optional(),
+  scope: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+});

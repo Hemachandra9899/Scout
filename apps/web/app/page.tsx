@@ -18,6 +18,7 @@ import { AppsMenu } from "../components/AppsMenu";
 import { ComposerPlusMenu } from "../components/ComposerPlusMenu";
 import { MemoryUploadModal } from "../components/MemoryUploadModal";
 import { DocumentUploadModal } from "../components/DocumentUploadModal";
+import { MemoryGraph } from "../components/MemoryGraph";
 import { useProjects, useCreateProject } from "../hooks/useProjects";
 import { useProjectJobs } from "../hooks/useProjectJobs";
 import { useProjectDocuments } from "../hooks/useDocuments";
@@ -169,6 +170,7 @@ export default function Home() {
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [memoryUploadOpen, setMemoryUploadOpen] = useState(false);
   const [documentUploadOpen, setDocumentUploadOpen] = useState(false);
+  const [activeApp, setActiveApp] = useState<string | null>(null);
 
   const { data: deps = {} } = useQuery({
     queryKey: ["health", "deps"],
@@ -383,7 +385,12 @@ export default function Home() {
 
         <div className="workspace-wrapper">
           <div className="workspace-left">
-            {!devMode ? (
+            {activeApp === "memory-graph" ? (
+              <MemoryGraph
+                projectId={selectedProjectId || projects[0]?.id || ""}
+                onClose={() => setActiveApp(null)}
+              />
+            ) : !devMode ? (
               <section className="messages-wrapper">
                 {messages.length > 0 ? (
                   <div className="messages">
@@ -510,32 +517,34 @@ export default function Home() {
               </div>
             )}
 
-            <div style={{ position: "relative" }}>
-              <ComposerPlusMenu
-                open={plusMenuOpen}
-                onClose={() => setPlusMenuOpen(false)}
-                onAction={(action) => {
-                  if (action === "agent-mode") {
-                    setQuestion("Use agent executor to " + (question || "research this topic"));
-                  } else if (action === "memory-upload") {
-                    setMemoryUploadOpen(true);
-                  } else if (action === "document-upload") {
-                    setDocumentUploadOpen(true);
-                  } else if (action === "memory-graph") {
-                    setAppsOpen(true);
-                  } else if (action === "repo-graph") {
-                    setAppsOpen(true);
-                  }
-                }}
-              />
-              <Composer
-                value={question}
-                onChange={setQuestion}
-                onSend={() => sendMessage(question)}
-                onOpenPlusMenu={() => setPlusMenuOpen(true)}
-                disabled={createResearchJob.isPending}
-              />
-            </div>
+            {!activeApp && (
+              <div style={{ position: "relative" }}>
+                <ComposerPlusMenu
+                  open={plusMenuOpen}
+                  onClose={() => setPlusMenuOpen(false)}
+                  onAction={(action) => {
+                    if (action === "agent-mode") {
+                      setQuestion("Use agent executor to " + (question || "research this topic"));
+                    } else if (action === "memory-upload") {
+                      setMemoryUploadOpen(true);
+                    } else if (action === "document-upload") {
+                      setDocumentUploadOpen(true);
+                    } else if (action === "memory-graph") {
+                      setActiveApp("memory-graph");
+                    } else if (action === "repo-graph") {
+                      setAppsOpen(true);
+                    }
+                  }}
+                />
+                <Composer
+                  value={question}
+                  onChange={setQuestion}
+                  onSend={() => sendMessage(question)}
+                  onOpenPlusMenu={() => setPlusMenuOpen(true)}
+                  disabled={createResearchJob.isPending}
+                />
+              </div>
+            )}
           </div>
 
           {devMode && (
