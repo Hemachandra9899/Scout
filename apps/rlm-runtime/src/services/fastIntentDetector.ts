@@ -69,7 +69,34 @@ export class FastIntentDetector {
     } catch { return DEFAULT; }
   }
   private detectWithRules(query: string): FastIntent | null {
-    const q = query.toLowerCase(); const repo = githubRepo(query);
+    const q = query.trim().toLowerCase();
+    
+    // Greeting / Capability / Conversational Rules
+    const greetings = [
+      /^(hi|hey|hello|yo|sup|thanks|thank\s+you|gm|gn|good\s+morning|good\s+afternoon|good\s+evening)\b/i,
+      /\b(what\s+can\s+you\s+do|who\s+are\s+you|what\s+are\s+you|help\s+me|help)\b/i,
+    ];
+    
+    const wordCount = q.split(/\s+/).filter(Boolean).length;
+    // If it's a bare conversational/short question <= 3 words, and doesn't contain tool indicators (api, doc, news, git, etc)
+    const isShortConversation = wordCount <= 3 && 
+      !has(q, [
+        /\b(api|sdk|docs?|github|http|www|web|news|latest|fix|debug|code|write|run|git|pdf|csv|xls|file|upload)\b/i
+      ]);
+
+    if (has(q, greetings) || isShortConversation) {
+      return {
+        intent: "general",
+        requiresFreshness: false,
+        requiresWeb: false,
+        requiresGithub: false,
+        requiredTools: [],
+        answerMode: "fast",
+        reason: "Deterministic greeting/conversational rule matched."
+      };
+    }
+
+    const repo = githubRepo(query);
     if (repo) return { intent:"github_repo", requiresFreshness:false, requiresWeb:true, requiresGithub:true, requiredTools:["github_repo"], answerMode:"fast", reason:`GitHub repo URL detected (${repo}); use github_repo, not crawl_url.` };
     if (has(q,[/\b(readme|about.*project|tell me about|what.*codebase|documentation page)\b/i])) return { intent:"kb", requiresFreshness:false, requiresWeb:false, requiresGithub:false, requiredTools:["search_kb"], answerMode:"fast", reason:"Project/README/documentation query; search_kb is appropriate." };
     if (has(q,[/\b(news|latest|current|today|recent|new update|breaking|announcement|announced)\b/i,/\bwhatsapp\b/i,/\bwhat'?s app\b/i])) return { intent:"news", requiresFreshness:true, requiresWeb:true, requiresGithub:false, requiredTools:["web_research"], answerMode:"fast", reason:"Current/news query; web_research is mandatory." };
@@ -78,8 +105,20 @@ export class FastIntentDetector {
     if (has(q,[/\b(write code|debug|fix code|implement|refactor|script|function|class|typescript|python|sql)\b/i])) return { intent:"code", requiresFreshness:false, requiresWeb:false, requiresGithub:false, requiredTools:[], answerMode:"deep", reason:"Coding/sandbox query." };
     return null;
   }
-  private messages(query: string): ChatMessage[] { return [
-    { role:"system", content:'Return JSON only: {"intent":"github_repo|news|web_research|kb|code|document|general","requiresFreshness":boolean,"requiresWeb":boolean,"requiresGithub":boolean,"requiredTools":["search_kb"|"web_research"|"crawl_url"|"query_graph"|"github_repo"],"answerMode":"fast|deep","reason":string}' },
-    { role:"user", content:query },
-  ]; }
+  private messages(query: string): ChatMessage[] {
+    const systemPrompt = `You are a fast intent classifier. Classify the user query into one of: github_repo, news, web_research, kb, code, document, general.
+Guidelines:
+1. Choose "general" with "answerMode": "fast" for conversational inputs, greetings (hi, hello, etc.), capability questions (what can you do?), and simple questions that don't need external web/doc research.
+2. Choose "web_research" or "news" with "answerMode": "fast" only when external sources or current information are required.
+3. Choose "github_repo" when a GitHub link is present.
+4. Choose "kb" or "document" when the user asks about project documentation, codebase structure, or uploaded files.
+5. Choose "code" with "answerMode": "deep" for requests asking to write, debug, refactor or fix code blocks.
+
+Return JSON only in this format:
+{"intent":"github_repo|news|web_research|kb|code|document|general","requiresFreshness":boolean,"requiresWeb":boolean,"requiresGithub":boolean,"requiredTools":["search_kb"|"web_research"|"crawl_url"|"query_graph"|"github_repo"],"answerMode":"fast|deep","reason":string}`;
+    return [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: query },
+    ];
+  }
 }
