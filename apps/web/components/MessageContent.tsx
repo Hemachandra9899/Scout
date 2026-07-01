@@ -38,10 +38,9 @@ export function MessageContent({ content, isStreaming }: { content: string; isSt
   }
 
   const isDump = looksLikeNumericDump(content);
-  const rawContent = isStreaming ? content + " ▍" : content;
 
   return (
-    <div className="message-content">
+    <div className={`message-content${isStreaming ? " is-streaming" : ""}`}>
       {isDump && (
         <div className="raw-data-warning">
           This answer contains raw data that may not be fully analyzed. Consider
@@ -58,7 +57,7 @@ export function MessageContent({ content, isStreaming }: { content: string; isSt
           ),
         }}
       >
-        {rawContent}
+        {content}
       </ReactMarkdown>
     </div>
   );

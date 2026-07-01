@@ -2497,6 +2497,17 @@ select:focus { border-color: var(--accent); }
 }
 .composer-mode-clear:hover { background: var(--line-2); color: var(--text); }
 .streaming-answer { position: relative; }
+.message-content.is-streaming > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 4px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: stream-blink 1s steps(2, start) infinite;
+}
 .stream-cursor {
   display: inline-block;
   width: 7px;
