@@ -75,7 +75,7 @@ run_bg "model-service" apps/model-service/.venv/bin/python apps/model-service/ru
 wait_for_port 8100 model-service
 
 # RLM runtime
-run_bg "rlm-runtime" deno run --allow-net --allow-env --allow-read --allow-ffi packages/rlm-runtime/src/server.ts
+run_bg "rlm-runtime" deno run --allow-net --allow-env --allow-read --allow-ffi apps/rlm-runtime/src/server.ts
 wait_for_port 8787 rlm-runtime
 
 # API

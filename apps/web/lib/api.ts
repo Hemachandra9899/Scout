@@ -215,3 +215,58 @@ export const api = {
       body: JSON.stringify(body),
     }),
 };
+
+export type ChatStreamBody = {
+  projectId?: string;
+  userId?: string;
+  query: string;
+  mode?: string;
+  conversationId?: string;
+  context?: { hasDocument?: boolean };
+};
+
+/** Open the streaming chat endpoint and invoke onEvent for each SSE event. */
+export async function chatStream(
+  body: ChatStreamBody,
+  onEvent: (event: string, data: any) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_URL}/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`${res.status} chat stream failed`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+
+      let event = "message";
+      let dataRaw = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataRaw += line.slice(5).trim();
+      }
+      if (!dataRaw) continue;
+      try {
+        onEvent(event, JSON.parse(dataRaw));
+      } catch {
+        /* ignore malformed event */
+      }
+    }
+  }
+}

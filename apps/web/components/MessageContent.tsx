@@ -32,12 +32,13 @@ function wrapTables(html: string): string {
   );
 }
 
-export function MessageContent({ content }: { content: string }) {
+export function MessageContent({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   if (!content?.trim()) {
     return <p className="answerText text-muted">Waiting for answer...</p>;
   }
 
   const isDump = looksLikeNumericDump(content);
+  const rawContent = isStreaming ? content + " ▍" : content;
 
   return (
     <div className="message-content">
@@ -57,7 +58,7 @@ export function MessageContent({ content }: { content: string }) {
           ),
         }}
       >
-        {content}
+        {rawContent}
       </ReactMarkdown>
     </div>
   );

@@ -13,6 +13,7 @@ import { routerRouter } from "./modules/router/router.router.js";
 import { graphReportsRouter } from "./modules/graph-reports/graph-reports.router.js";
 import { agentsRouter } from "./modules/agents/agents.router.js";
 import { memoriesRouter } from "./modules/memories/memories.router.js";
+import { chatRouter } from "./modules/chat/chat.router.js";
 
 function createLoggerConfig() {
   const level = process.env.LOG_LEVEL || "info";
@@ -56,6 +57,7 @@ export async function buildApp() {
   await app.register(graphReportsRouter);
   await app.register(agentsRouter);
   await app.register(memoriesRouter);
+  await app.register(chatRouter);
 
   return app;
 }

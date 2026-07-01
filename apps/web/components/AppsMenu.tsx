@@ -3,7 +3,7 @@
 interface AppsMenuProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (appId: string) => void;
+  onSelectApp: (appId: string) => void;
 }
 
 const apps = [
@@ -16,7 +16,7 @@ const apps = [
   { id: "github-analyzer", label: "GitHub Repo Analyzer", description: "Analyze any public repository" },
 ];
 
-export function AppsMenu({ open, onClose, onSelect }: AppsMenuProps) {
+export function AppsMenu({ open, onClose, onSelectApp }: AppsMenuProps) {
   if (!open) return null;
 
   return (
@@ -35,7 +35,7 @@ export function AppsMenu({ open, onClose, onSelect }: AppsMenuProps) {
             <button
               key={app.id}
               className="app-card"
-              onClick={() => { onSelect(app.id); onClose(); }}
+              onClick={() => { onSelectApp(app.id); onClose(); }}
             >
               <div className="app-card-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -319,6 +319,13 @@ export class RlmLoop {
 
     const fastIntent = depth === 0 ? await this.fastIntentDetector.detect(req.query) : null;
 
+    if (depth === 0 && fastIntent && fastIntent.intent === "general" && fastIntent.answerMode === "fast") {
+      const directResult = await this.tryDirectAnswerPath(req, fastIntent, depth, maxDepth);
+      if (directResult) {
+        return directResult;
+      }
+    }
+
     const intent = depth === 0 && !fastIntent ? await this.intentDetector.detect(req.query) : null;
 
     const strategy =
@@ -632,6 +639,61 @@ export class RlmLoop {
         steps,
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  private async tryDirectAnswerPath(
+    req: ExecuteRequest,
+    fastIntent: FastIntent,
+    depth: number,
+    maxDepth: number
+  ): Promise<RlmRunResult | null> {
+    if (Deno.env.get("RLM_DIRECT_ANSWER_ENABLED") === "0") {
+      return null;
+    }
+
+    const systemPrompt = `You are Scout, an evidence-first recursive AI research assistant.
+Answer greetings, capability inquiries, or simple questions directly, concisely, and helpfully.
+Real capabilities to mention if asked:
+- Recursive deep research with sources and citations.
+- Repository graph analysis (codebase visualization).
+- Memory curation (durable facts, preferences, decisions).
+
+If the user's question requires current news, specific codebase files, or document analysis, tell the user that you can perform research on it, and ask if they would like to run a query.
+Do not fabricate facts. Be direct and polite.`;
+
+    const chatMessages: ChatMessage[] = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    if (req.conversationContext && req.conversationContext.length > 0) {
+      for (const msg of req.conversationContext) {
+        const role = msg.role === "system" || msg.role === "user" || msg.role === "assistant"
+          ? msg.role
+          : "user";
+        chatMessages.push({ role, content: msg.content });
+      }
+    } else {
+      chatMessages.push({ role: "user", content: req.query });
+    }
+
+    try {
+      const content = await this.modelClient.chatReasoning(chatMessages);
+      return {
+        status: "completed",
+        runId: req.runId,
+        projectId: req.projectId,
+        query: req.query,
+        depth,
+        maxDepth,
+        final: content,
+        sources: [],
+        steps: [],
+        error: null,
+      };
+    } catch (e: any) {
+      console.error(`Direct answer path failed: ${e.message}`);
+      return null;
     }
   }
 }

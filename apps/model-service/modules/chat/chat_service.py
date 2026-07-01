@@ -1,10 +1,15 @@
+import json
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Iterator
 
 from fastapi import HTTPException
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
 from modules.chat.chat_schema import ChatRequest
+
+
+def _sse(event: str, data: Dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
 def _build_client(req: ChatRequest):
@@ -70,6 +75,30 @@ def chat_response(req: ChatRequest) -> Dict[str, Any]:
         "reasoning": "".join(reasoning_parts),
         "content": "".join(content_parts),
     }
+
+
+def stream_chat_response(req: ChatRequest) -> Iterator[str]:
+    """Yield Server-Sent Events: `token` for answer deltas, `thinking` for reasoning
+    deltas, then a final `done` (or `error`). Streams over the same client.stream()."""
+    try:
+        model, client = _build_client(req)
+    except Exception as e:
+        yield _sse("error", {"error": f"Failed to initialize model client: {str(e)}", "mode": req.mode})
+        return
+
+    try:
+        for chunk in client.stream(req.messages):
+            if chunk.additional_kwargs and "reasoning_content" in chunk.additional_kwargs:
+                delta = chunk.additional_kwargs["reasoning_content"]
+                if delta:
+                    yield _sse("thinking", {"delta": delta})
+            if chunk.content:
+                yield _sse("token", {"delta": chunk.content})
+    except Exception as e:
+        yield _sse("error", {"error": str(e), "mode": req.mode, "model": model})
+        return
+
+    yield _sse("done", {"model": model, "mode": req.mode})
 
 
 def list_available_models() -> list[dict]:

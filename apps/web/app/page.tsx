@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api, Conversation, ProjectDocument, ResearchJob } from "../lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, chatStream, Conversation, ProjectDocument, ResearchJob } from "../lib/api";
+import { queryKeys } from "../lib/query/queryKeys";
 import { getContractAnswerMarkdown, getContractSources, getResearchContract } from "../lib/researchContract";
 import { FileUploadPanel } from "../components/FileUploadPanel";
 import { DocumentsPanel } from "../components/DocumentsPanel";
@@ -20,6 +21,7 @@ import { MemoryUploadModal } from "../components/MemoryUploadModal";
 import { DocumentUploadModal } from "../components/DocumentUploadModal";
 import { MemoryGraph } from "../components/MemoryGraph";
 import { AgentRunsPanel } from "../components/AgentRunsPanel";
+import { DevTerminal } from "../components/DevTerminal";
 import { useProjects, useCreateProject } from "../hooks/useProjects";
 import { useProjectJobs } from "../hooks/useProjectJobs";
 import { useProjectDocuments } from "../hooks/useDocuments";
@@ -29,16 +31,17 @@ import {
   useCreateConversation,
 } from "../hooks/useConversations";
 import {
-  useCreateResearchJob,
   useResearchJobStatus,
   useResearchJob,
 } from "../hooks/useResearchJob";
 
 type Theme = "dark" | "light";
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// ─── Helpers ─────────────────────────────────────────────────
 function isGenericAnswer(value: string) {
   const normalized = value.trim().toLowerCase();
-
   if (
     [
       "done",
@@ -50,7 +53,6 @@ function isGenericAnswer(value: string) {
   ) {
     return true;
   }
-
   const placeholderPatterns = [
     "the comparison table",
     "the table above",
@@ -61,99 +63,49 @@ function isGenericAnswer(value: string) {
     "refer to the",
     "see the table",
   ];
-
   return placeholderPatterns.some((p) => normalized.includes(p));
 }
 
 function extractStdout(job?: ResearchJob) {
   const runs = job?.agentRuns || [];
-
   for (const run of runs) {
     const result = run.finalOutput as any;
     const steps = Array.isArray(result?.steps) ? result.steps : [];
-
     for (const step of [...steps].reverse()) {
       if (typeof step?.stdout === "string" && step.stdout.trim()) {
         return step.stdout.trim();
       }
     }
   }
-
   return "";
 }
 
 function answerText(job?: ResearchJob) {
   if (!job) return "";
-
   const contractAnswer = getContractAnswerMarkdown(job);
   if (contractAnswer && !isGenericAnswer(contractAnswer)) return contractAnswer;
-
   const report = job.reports?.[0];
-
-  if (report?.content && !isGenericAnswer(report.content)) {
-    return report.content;
-  }
-
+  if (report?.content && !isGenericAnswer(report.content)) return report.content;
   const stdout = extractStdout(job);
   if (stdout) return stdout;
-
   const finalOutput = job.agentRuns?.[0]?.finalOutput as any;
   const final = finalOutput?.final;
-
   if (typeof final === "string" && !isGenericAnswer(final)) return final;
-
   return job.error || "";
 }
 
 function getSources(job?: ResearchJob) {
   const contractSources = getContractSources(job);
   if (contractSources.length > 0) return contractSources;
-
   const report = job?.reports?.[0] as any;
   const sources = report?.metadata?.sources;
-
   if (Array.isArray(sources)) return sources;
-
   const resultSources = (job?.agentRuns?.[0]?.finalOutput as any)?.sources;
   if (Array.isArray(resultSources)) return resultSources;
-
   return [];
 }
 
-function shortId(id: string) {
-  return id.slice(0, 8);
-}
-
-function TypewriterText({ text }: { text: string }) {
-  const [displayedText, setDisplayedText] = useState("");
-
-  useEffect(() => {
-    if (!text) {
-      setDisplayedText("");
-      return;
-    }
-
-    const tokens = text.split(/(\s+)/);
-    setDisplayedText("");
-
-    let currentIdx = 0;
-    const interval = setInterval(() => {
-      setDisplayedText((prev) => {
-        const next = tokens.slice(0, currentIdx + 1).join("");
-        currentIdx++;
-        if (currentIdx >= tokens.length) {
-          clearInterval(interval);
-        }
-        return next;
-      });
-    }, 40);
-
-    return () => clearInterval(interval);
-  }, [text]);
-
-  return <span className="answerText">{displayedText}</span>;
-}
-
+// ─── Component ───────────────────────────────────────────────
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -162,9 +114,7 @@ export default function Home() {
   const [activeConversationId, setActiveConversationId] = useState("");
   const [activeJobId, setActiveJobId] = useState("");
   const [projectName, setProjectName] = useState("Scout");
-  const [question, setQuestion] = useState(
-    "Explain what Scout is in simple words.",
-  );
+  const [question, setQuestion] = useState("");
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
@@ -172,6 +122,19 @@ export default function Home() {
   const [memoryUploadOpen, setMemoryUploadOpen] = useState(false);
   const [documentUploadOpen, setDocumentUploadOpen] = useState(false);
   const [activeApp, setActiveApp] = useState<string | null>(null);
+  const [composerMode, setComposerMode] = useState<string>("auto");
+  const [streaming, setStreaming] = useState<{
+    question: string;
+    answer: string;
+    thinking: string;
+    flow: string;
+    sources: unknown[];
+    active: boolean;
+  } | null>(null);
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const isSendingRef = useRef(false);
+  const MIN_THINKING_MS = 600;
+  const queryClient = useQueryClient();
 
   const { data: deps = {} } = useQuery({
     queryKey: ["health", "deps"],
@@ -184,7 +147,6 @@ export default function Home() {
   const { data: activeConversation } = useConversation(activeConversationId);
 
   const createProjectMutation = useCreateProject();
-  const createResearchJob = useCreateResearchJob(selectedProjectId);
   const createConversation = useCreateConversation(selectedProjectId);
 
   const { data: activeJobStatus } = useResearchJobStatus(activeJobId);
@@ -207,52 +169,16 @@ export default function Home() {
     return activeConversation?.messages || [];
   }, [activeConversation]);
 
-  const stages = useMemo(() => {
-    if (!activeJob) {
-      return { query: false, agent: false, vector: false, rlm: false, output: false, active: "" };
+  const showStreamingBubble = useMemo(() => {
+    if (!streaming) return false;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === "assistant" && lastMsg.content === streaming.answer) {
+      return false;
     }
+    return true;
+  }, [messages, streaming]);
 
-    const status = activeJob.status?.toLowerCase() || "";
-    const runsCount = activeJob.agentRuns?.length || 0;
-    let query = true;
-    let agent = false;
-    let vector = false;
-    let rlm = false;
-    let output = false;
-    let active = "query";
-
-    if (status === "queued") {
-      active = "query";
-    } else if (status === "running") {
-      agent = true;
-      active = "agent";
-      if (runsCount > 0) {
-        vector = true;
-        active = "vector";
-      }
-      const totalSteps = activeJob.agentRuns?.reduce(
-        (sum, run) => sum + (run.steps?.length || 0),
-        0,
-      ) || 0;
-      if (totalSteps > 0) {
-        rlm = true;
-        active = "rlm";
-      }
-    } else if (status === "completed") {
-      agent = true;
-      vector = true;
-      rlm = true;
-      output = true;
-      active = "output";
-    } else if (status === "failed") {
-      agent = runsCount > 0;
-      vector = runsCount > 0;
-      rlm = runsCount > 0;
-      active = "failed";
-    }
-
-    return { query, agent, vector, rlm, output, active };
-  }, [activeJob]);
+  const currentAnswer = useMemo(() => answerText(activeJob), [activeJob]);
 
   const handleNewChat = useCallback(async () => {
     if (!selectedProjectId) return;
@@ -267,41 +193,139 @@ export default function Home() {
   }, [selectedProjectId, createConversation]);
 
   async function sendMessage(text: string) {
-    if (!text.trim()) return;
-    let pid = selectedProjectId || projects[0]?.id;
+    if (!text.trim() || streaming?.active || isSendingRef.current) return;
+    const pid = selectedProjectId || projects[0]?.id;
     if (!pid) {
       setError("Please create or select a project first.");
       return;
     }
     setError("");
-    try {
-      const result = await createResearchJob.mutateAsync({
-        question: text,
-        conversationId: activeConversationId || undefined,
+    setQuestion("");
+    setActiveJobId("");
+    isSendingRef.current = true;
+
+    const mode = composerMode;
+    let conversationId = activeConversationId || undefined;
+
+    // Shared buffers between the SSE producer and the typewriter consumer.
+    let fullAnswer = "";
+    let networkDone = false;
+    let sources: unknown[] = [];
+
+    setStreaming({
+      question: text,
+      answer: "",
+      thinking: "Thinking",
+      flow: "",
+      sources: [],
+      active: true,
+    });
+
+    // Producer: drain the SSE stream into the shared buffers.
+    const pump = chatStream(
+      { projectId: pid, query: text, mode, conversationId },
+      (event, data) => {
+        if (event === "conversation" && data.conversationId) {
+          conversationId = data.conversationId;
+        } else if (event === "intent") {
+          setStreaming((s) => (s ? { ...s, flow: data.flow ?? "" } : s));
+        } else if (event === "thinking") {
+          setStreaming((s) => (s ? { ...s, thinking: data.label ?? s.thinking } : s));
+        } else if (event === "token") {
+          fullAnswer += data.delta ?? "";
+        } else if (event === "sources") {
+          sources = data.sources ?? [];
+        } else if (event === "error") {
+          if (!fullAnswer) fullAnswer = `Error: ${data.error}`;
+        }
+      },
+    )
+      .then(() => {
+        networkDone = true;
+      })
+      .catch((e) => {
+        networkDone = true;
+        if (!fullAnswer) fullAnswer = e instanceof Error ? e.message : String(e);
       });
-      setActiveConversationId(result.conversationId);
-      setActiveJobId(result.jobId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+
+    // Consumer: enforce a minimum visible "thinking" phase, then reveal the answer
+    // progressively (typewriter) — so thinking + streaming are always visible,
+    // regardless of how fast the backend delivered the tokens.
+    const startedAt = Date.now();
+    let lastLabelUpdate = Date.now();
+    let labelIdx = 0;
+    const thinkingLabels = [
+      "Searching web and local databases",
+      "Extracting key details from sources",
+      "Synthesizing final answer",
+    ];
+
+    while (
+      (Date.now() - startedAt < MIN_THINKING_MS || !networkDone) &&
+      fullAnswer.length === 0
+    ) {
+      await sleep(40);
+      
+      // Cycle thinking labels to show progress / running state
+      if (Date.now() - lastLabelUpdate > 3000) {
+        const nextLabel = thinkingLabels[labelIdx];
+        if (nextLabel) {
+          setStreaming((s) => (s ? { ...s, thinking: nextLabel } : s));
+          labelIdx++;
+        }
+        lastLabelUpdate = Date.now();
+      }
+    }
+
+    const waited = Date.now() - startedAt;
+    if (waited < MIN_THINKING_MS) await sleep(MIN_THINKING_MS - waited);
+
+    let shown = 0;
+    while (true) {
+      if (shown < fullAnswer.length) {
+        const backlog = fullAnswer.length - shown;
+        const step = backlog > 150 ? 6 : backlog > 50 ? 3 : 1;
+        shown = Math.min(fullAnswer.length, shown + step);
+        const slice = fullAnswer.slice(0, shown);
+        setStreaming((s) => (s ? { ...s, answer: slice, thinking: "" } : s));
+        await sleep(20);
+      } else if (networkDone) {
+        break;
+      } else {
+        await sleep(30);
+      }
+    }
+
+    try {
+      await pump;
+      setStreaming((s) =>
+        s ? { ...s, answer: fullAnswer, thinking: "", sources, active: false } : s,
+      );
+
+      setComposerMode("auto");
+      if (conversationId) {
+        try {
+          await queryClient.fetchQuery({
+            queryKey: queryKeys.conversation(conversationId),
+            queryFn: () => api.getConversation(conversationId!),
+          });
+        } catch {
+          /* keep the stream bubble content if the refetch fails */
+        }
+        setActiveConversationId(conversationId);
+      }
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.projectConversations(pid),
+      });
+    } finally {
+      isSendingRef.current = false;
+      setStreaming(null);
     }
   }
 
   function selectConversation(id: string) {
     setActiveConversationId(id);
     setActiveJobId("");
-  }
-
-  async function createProject() {
-    setError("");
-    try {
-      const project = await createProjectMutation.mutateAsync({
-        name: projectName || "Untitled Project",
-        description: "Created from Scout UI",
-      });
-      setSelectedProjectId(project.id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
   }
 
   useEffect(() => {
@@ -321,6 +345,13 @@ export default function Home() {
     }
   }, [selectedProjectId]);
 
+  // Auto-select first project
+  useEffect(() => {
+    if (!selectedProjectId && projects.length > 0) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [projects, selectedProjectId]);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -336,9 +367,34 @@ export default function Home() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Greet based on time
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h >= 22 || h < 4) return "Hi night owl. What should we do now?";
+    if (h < 12) return "Good morning. How can I help?";
+    if (h < 17) return "Good afternoon. How can I help?";
+    return "Good evening. How can I help?";
+  }, []);
+
+  const isJobRunning =
+    activeJob && !["completed", "failed"].includes(activeJob.status?.toLowerCase() || "");
+  const isJobDone =
+    activeJob && ["completed", "failed"].includes(activeJob.status?.toLowerCase() || "");
+
   return (
     <main className="app-container">
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", width: sidebarOpen ? "250px" : "0px", overflow: "hidden", flexShrink: 0, transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+      {/* ── Sidebar column ── */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          width: sidebarOpen ? "var(--sidebar-width)" : "0px",
+          overflow: "hidden",
+          flexShrink: 0,
+          transition: "width 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        }}
+      >
         <Sidebar
           projects={projects}
           selectedProjectId={selectedProjectId}
@@ -349,40 +405,83 @@ export default function Home() {
           onSelectProject={setSelectedProjectId}
           onSelectConversation={selectConversation}
           onToggle={() => setSidebarOpen(false)}
+          onCreateProject={async (name) => {
+            try {
+              const proj = await createProjectMutation.mutateAsync({ name });
+              setSelectedProjectId(proj.id);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          }}
         />
-        <div style={{ marginTop: "auto", borderTop: "1px solid var(--line)" }}>
+        {/* Account menu pinned to bottom of sidebar */}
+        <div
+          style={{
+            marginTop: "auto",
+            borderTop: "1px solid var(--line)",
+            background: "var(--panel)",
+            flexShrink: 0,
+            opacity: sidebarOpen ? 1 : 0,
+            transition: "opacity 0.2s ease",
+          }}
+        >
           <AccountMenu onOpenSettings={() => setSettingsOpen(true)} />
         </div>
       </div>
 
+      {/* ── Main content ── */}
       <section className="chat-container">
+        {/* Header */}
         <header className="chatHeader">
           <div className="header-left">
+            {/* Sidebar open toggle (when collapsed) */}
             {!sidebarOpen && (
               <button
                 className="menu-toggle"
                 onClick={() => setSidebarOpen(true)}
-                title="Expand sidebar"
+                title="Open sidebar"
+                aria-label="Open sidebar"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="18" x2="21" y2="18" />
+                  <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" />
                 </svg>
               </button>
             )}
+
+            {/* Inline new-chat button when sidebar is collapsed */}
+            {!sidebarOpen && (
+              <button
+                className="menu-toggle"
+                onClick={handleNewChat}
+                title="New chat"
+                aria-label="New chat"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" />
+                </svg>
+              </button>
+            )}
+
             <div className="header-title">
-              <p>{selectedProject?.name || "No project selected"}</p>
               <h2>
-                {activeConversationId ? "Chat" : "Scout Playground"}
+                {activeApp === "memory-graph"
+                  ? "Memory Graph"
+                  : activeApp === "agent-runs"
+                  ? "Agent Runs"
+                  : activeConversationId
+                  ? (conversations.find((c) => c.id === activeConversationId)?.title || "Chat")
+                  : "Scout"}
               </h2>
             </div>
           </div>
 
           <div className="header-right">
+            {/* API health status dots */}
             <div className="status-row">
               {Object.entries(deps).map(([key, value]) => (
                 <div
                   key={key}
-                  className={`status-indicator ${value.includes("ok") ? "ok" : ""}`}
+                  className={`status-indicator ${(value as string).includes("ok") ? "ok" : ""}`}
                   title={`${key}: ${value}`}
                 >
                   <span className="dot" />
@@ -390,17 +489,37 @@ export default function Home() {
                 </div>
               ))}
             </div>
+
+            {/* Dev mode terminal toggle */}
+            <button
+              id="dev-mode-toggle"
+              className={`dev-mode-toggle-btn ${devMode ? "active" : ""}`}
+              onClick={() => setDevMode(!devMode)}
+              title={devMode ? "Close Terminal" : "Open Dev Terminal"}
+              aria-label="Toggle dev terminal"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+              {devMode ? "Close Terminal" : "Dev Terminal"}
+            </button>
+
+            {/* Theme toggle */}
             <button
               className="theme-toggle-btn"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+              aria-label="Toggle theme"
             >
-              {theme === "dark" ? "☀ Light" : "☾ Dark"}
+              {theme === "dark" ? "☀" : "☾"}
             </button>
           </div>
         </header>
 
+        {/* Workspace */}
         <div className="workspace-wrapper">
           <div className="workspace-left">
+            {/* ── App views ── */}
             {activeApp === "memory-graph" ? (
               <MemoryGraph
                 projectId={selectedProjectId || projects[0]?.id || ""}
@@ -411,39 +530,79 @@ export default function Home() {
                 projectId={selectedProjectId || projects[0]?.id || ""}
                 onClose={() => setActiveApp(null)}
               />
-            ) : !devMode ? (
-              <section className="messages-wrapper">
-                {messages.length > 0 ? (
+            ) : (
+              /* ── Chat view ── */
+              <section className="messages-wrapper" aria-live="polite">
+                {messages.length > 0 || streaming ? (
                   <div className="messages">
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
                         className={`bubble ${msg.role === "user" ? "user" : "assistant"}`}
                       >
-                        <b>{msg.role === "user" ? "You" : "Scout"}</b>
-                        <p>{msg.content}</p>
+                        {msg.role === "user" ? (
+                          <p>{msg.content}</p>
+                        ) : (
+                          <MessageContent content={msg.content} />
+                        )}
                       </div>
                     ))}
-                    {activeJob && !["completed", "failed"].includes(activeJob.status?.toLowerCase() || "") && (
+
+                    {/* In-flight / just-finished streamed turn */}
+                    {showStreamingBubble && streaming && (
+                      <>
+                        <div className="bubble user">
+                          <p>{streaming.question}</p>
+                        </div>
+                        <div className="bubble assistant">
+                          {streaming.answer ? (
+                            <div className="streaming-answer">
+                              <MessageContent content={streaming.answer} isStreaming={streaming.active} />
+                            </div>
+                          ) : (
+                            <div className="thinking-indicator" style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--text-secondary)" }}>
+                              <div
+                                style={{
+                                  width: 16,
+                                  height: 16,
+                                  border: "2px solid rgba(255,255,255,0.1)",
+                                  borderTopColor: "var(--accent)",
+                                  borderRadius: "50%",
+                                  animation: "spin 0.8s linear infinite",
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <span style={{ fontSize: 14, fontWeight: 400 }}>
+                                {streaming.thinking || "Thinking"}
+                                {streaming.flow ? ` · ${streaming.flow}` : ""}…
+                              </span>
+                            </div>
+                          )}
+                          {devMode && streaming.sources.length > 0 && (
+                            <SourcesPanel sources={streaming.sources as any} />
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Dev-only legacy job trace (agent runs, research debug) */}
+                    {devMode && isJobRunning && (
                       <div className="bubble assistant">
-                        <b>Scout</b>
-                        <RunProgress status={activeJob.status} />
-                        <p className="answerText text-muted">Running research...</p>
+                        <RunProgress status={activeJob!.status} devMode={devMode} />
                       </div>
                     )}
-                    {activeJob && ["completed", "failed"].includes(activeJob.status?.toLowerCase() || "") && (
+                    {devMode && isJobDone && (
                       <div className="bubble assistant">
-                        <b>Scout</b>
-                        <MessageContent content={answerText(activeJob)} />
+                        <MessageContent content={currentAnswer} />
                         <SourcesPanel sources={getSources(activeJob)} />
                         <ResearchDebugPanel contract={getResearchContract(activeJob)} />
-                        {activeJob.agentRuns?.length ? (
+                        {activeJob!.agentRuns?.length ? (
                           <details className="trace-details">
                             <summary>
-                              Trace Logs ({activeJob.agentRuns.length} runs)
+                              Trace Logs ({activeJob!.agentRuns.length} run{activeJob!.agentRuns.length !== 1 ? "s" : ""})
                             </summary>
                             <pre className="trace-pre">
-                              {JSON.stringify(activeJob.agentRuns, null, 2)}
+                              {JSON.stringify(activeJob!.agentRuns, null, 2)}
                             </pre>
                           </details>
                         ) : null}
@@ -451,109 +610,69 @@ export default function Home() {
                     )}
                   </div>
                 ) : (
+                  /* ── Welcome dashboard ── */
                   <div className="welcome-dashboard">
-                    <div className="welcome-logo">SCOUT</div>
-                    <div className="welcome-subtitle">
-                      API, Docs and Recursive AI Research Engine
-                    </div>
+                    <div className="welcome-logo">Scout</div>
+                    <h1 className="welcome-greeting" suppressHydrationWarning>{greeting}</h1>
                     <div className="presets-container">
                       <button
                         className="preset-pill"
-                        onClick={() => setQuestion("Deep search recursive runtime logs")}
+                        onClick={() => setQuestion("Deep search recursive runtime logs and summarize findings")}
                       >
-                        Search
+                        Deep search runtime logs
                       </button>
                       <button
                         className="preset-pill"
-                        onClick={() => setQuestion("Extract structured entities from data sources")}
+                        onClick={() => setQuestion("Extract structured entities from all data sources")}
                       >
-                        Extract
+                        Extract structured entities
                       </button>
                       <button
                         className="preset-pill"
-                        onClick={() => setQuestion("Crawl nested API documentations recursively")}
+                        onClick={() => setQuestion("Crawl and analyze nested API documentation recursively")}
                       >
-                        Crawl
+                        Crawl API documentation
+                      </button>
+                      <button
+                        className="preset-pill"
+                        onClick={() => setQuestion("Summarize all recent memory entries and decisions")}
+                      >
+                        Summarize memory graph
                       </button>
                     </div>
                   </div>
                 )}
-                {error ? (
-                  <div className="messages">
+
+                {error && (
+                  <div className="messages" style={{ width: "100%", maxWidth: 760 }}>
                     <div className="error-message">{error}</div>
                   </div>
-                ) : null}
-              </section>
-            ) : (
-              <div className="workflow-canvas">
-                {createResearchJob.isPending && (
-                  <>
-                    <div className="cloud-code-particle" style={{ left: "42%", animationDelay: "0s" }}>
-                      {"const rlm = new RLM()"}
-                    </div>
-                    <div className="cloud-code-particle" style={{ left: "56%", animationDelay: "1.5s" }}>
-                      {"qdrant.query({ text })"}
-                    </div>
-                    <div className="cloud-code-particle" style={{ left: "48%", animationDelay: "3s" }}>
-                      {"redis.set(cache_key)"}
-                    </div>
-                    <div className="cloud-code-particle" style={{ left: "52%", animationDelay: "4.5s" }}>
-                      {"agent.reason(task)"}
-                    </div>
-                  </>
                 )}
-
-                <div className="workflow-nodes">
-                  {[
-                    { key: "output", color: "var(--lime)", icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", children: "M14 2 14 8 20 8 M16 13H8 M16 17H8", title: "OUTPUT REPORT", desc: "Final Knowledge Summary" },
-                    { key: "rlm", color: "var(--pink)", icon: "M13 2 3 14 12 14 11 22 21 10 12 10 13 2", children: "", title: "RLM RUNTIME", desc: "Recursive Execution Loop" },
-                    { key: "vector", color: "var(--orange)", icon: "M12 5C7.34 5 3 5.9 3 7v4c0 1.66 4 3 9 3s9-1.34 9-3V7", children: "M3 12c0 1.66 4 3 9 3s9-1.34 9-3", title: "VECTOR RETRIEVE", desc: "Qdrant DB & Cache Query" },
-                    { key: "agent", color: "var(--cyan)", icon: "M12 2a4 4 0 0 0-4 4v1H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z", children: "M12 11v6M9 14h6", title: "AGENT PLANNER", desc: "Reasoning Task Planning" },
-                    { key: "query", color: "var(--lime)", icon: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", children: "", title: "QUERY INPUT", desc: activeJob ? activeJob.question.slice(0, 25) + (activeJob.question.length > 25 ? "..." : "") : "Idle" },
-                  ].map((card, idx) => (
-                    <div key={card.key}>
-                      <div className={`flow-card-wrapper ${stages[card.key] ? "visible" : ""}`}>
-                        <div className={`flow-card ${stages.active === card.key ? "active" : ""}`}>
-                          <div className="flow-card-icon" style={{ backgroundColor: card.color }}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5">
-                              <path d={card.icon} />
-                              {card.children && <><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" /></>}
-                            </svg>
-                          </div>
-                          <div className="flow-card-body">
-                            <div className="flow-card-title">{card.title}</div>
-                            <div className="flow-card-desc">{card.desc}</div>
-                          </div>
-                          {stages.active === card.key && (
-                            <div className="flow-card-tag" style={{ backgroundColor: card.color }}>
-                              {card.key === "query" ? "User Query" : card.key === "agent" ? "Agent Planning" : card.key === "vector" ? "DB Fetching" : card.key === "rlm" ? "RLM Loop" : "Completed"}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {idx < 4 && stages[card.key] && <div className="flow-connector" />}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              </section>
             )}
 
+            {/* ── Composer (only in chat view) ── */}
             {!activeApp && (
-              <div style={{ position: "relative" }}>
+              <div style={{ position: "relative", width: "100%" }}>
                 <ComposerPlusMenu
                   open={plusMenuOpen}
                   onClose={() => setPlusMenuOpen(false)}
+                  triggerRef={plusBtnRef}
                   onAction={(action) => {
                     if (action === "agent-mode") {
-                      setActiveApp("agent-runs");
+                      setComposerMode("agent");
+                    } else if (action === "web-research") {
+                      setComposerMode("web_research");
+                    } else if (action === "deep-research") {
+                      setComposerMode("deep_research");
+                    } else if (action === "github-repo") {
+                      setComposerMode("github_repo");
                     } else if (action === "memory-upload") {
                       setMemoryUploadOpen(true);
-                    } else if (action === "document-upload") {
+                    } else if (action === "document-upload" || action === "file-upload") {
                       setDocumentUploadOpen(true);
                     } else if (action === "memory-graph") {
                       setActiveApp("memory-graph");
-                    } else if (action === "repo-graph") {
-                      setAppsOpen(true);
                     }
                   }}
                 />
@@ -561,114 +680,31 @@ export default function Home() {
                   value={question}
                   onChange={setQuestion}
                   onSend={() => sendMessage(question)}
-                  onOpenPlusMenu={() => setPlusMenuOpen(true)}
-                  disabled={createResearchJob.isPending}
+                  onOpenPlusMenu={() => setPlusMenuOpen((prev) => !prev)}
+                  disabled={Boolean(streaming?.active) || isSendingRef.current}
+                  mode={composerMode}
+                  onClearMode={() => setComposerMode("auto")}
+                  plusBtnRef={plusBtnRef}
                 />
               </div>
             )}
           </div>
-
-          {devMode && (
-            <div className="dev-console-panel">
-              <div className="console-header">
-                <h3>Console Sandbox Trace</h3>
-                <span
-                  style={{
-                    color: "var(--lime)",
-                    fontFamily: "var(--font-pixel)",
-                    fontSize: "14px",
-                  }}
-                >
-                  {activeJob ? activeJob.status : "Idle"}
-                </span>
-              </div>
-              <div className="console-body">
-                {activeJob ? (
-                  <>
-                    <div className="console-line">
-                      <span className="timestamp">[00:01]</span>
-                      <span className="tag">[SYSTEM]</span>
-                      <span>
-                        Initialized research sandbox session:{" "}
-                        {shortId(activeJob.id)}
-                      </span>
-                    </div>
-                    <div className="console-line">
-                      <span className="timestamp">[00:02]</span>
-                      <span className="tag">[SANDBOX]</span>
-                      <span>
-                        Running RLM executive with prompt input.
-                      </span>
-                    </div>
-                    {activeJob.agentRuns?.map((run, idx) => (
-                      <div key={run.id} className="console-line">
-                        <span className="timestamp">
-                          [00:{idx + 3}]
-                        </span>
-                        <span className="tag">[AGENT_RUN]</span>
-                        <span>
-                          Depth {run.depth}: status={run.status}, query="
-                          {run.query}"
-                        </span>
-                        {run.steps?.map((step) => (
-                          <div
-                            key={step.id}
-                            style={{
-                              paddingLeft: "12px",
-                              color: "var(--orange)",
-                            }}
-                          >
-                            <span>
-                              Step {step.stepIndex}:{" "}
-                              {step.stdout || "Evaluating step..."}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                    {activeJob.error && (
-                      <div
-                        className="console-line"
-                        style={{ color: "var(--bad)" }}
-                      >
-                        <span className="timestamp">[ERR]</span>
-                        <span>{activeJob.error}</span>
-                      </div>
-                    )}
-                    {activeJob.status?.toLowerCase() === "completed" && (
-                      <>
-                        <div
-                          className="console-line"
-                          style={{ color: "var(--lime)" }}
-                        >
-                          <span className="timestamp">[DONE]</span>
-                          <span>Report generated successfully!</span>
-                        </div>
-                        <div className="console-answer-section">
-                          <div className="console-answer-header">
-                            &gt; FINAL REPORT OUTPUT:
-                          </div>
-                          <TypewriterText
-                            text={answerText(activeJob)}
-                          />
-                        </div>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <div className="muted">
-                    Waiting for research sandbox query...
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </section>
 
+      {/* ── Dev Terminal Overlay ── */}
+      <DevTerminal
+        open={devMode}
+        onClose={() => setDevMode(false)}
+        activeJob={activeJob}
+        answerText={currentAnswer}
+      />
+
+      {/* ── Modals ── */}
       <SettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        deps={deps}
       />
       <MemoryUploadModal
         open={memoryUploadOpen}
@@ -680,6 +716,16 @@ export default function Home() {
         onClose={() => setDocumentUploadOpen(false)}
         projectId={selectedProjectId || projects[0]?.id || ""}
       />
+      {appsOpen && (
+        <AppsMenu
+          open={appsOpen}
+          onClose={() => setAppsOpen(false)}
+          onSelectApp={(app) => {
+            setAppsOpen(false);
+            setActiveApp(app);
+          }}
+        />
+      )}
     </main>
   );
 }
