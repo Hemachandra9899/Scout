@@ -542,7 +542,7 @@ Search providers are optional. Scout uses whatever is configured and deduplicate
 - [x] Add Phase 2.4 targeted eval pass
 - [x] Memo Repo / Remember Repo memory
 - [x] Expose `memoRepoUsed=true`
-- [x] Add Phase 2.5 targeted eval passes
+- [x] Add Phase 2.55 targeted eval passes
 
 ### Next: Phase 3
 
