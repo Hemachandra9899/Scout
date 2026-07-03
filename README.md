@@ -2029,7 +2029,7 @@ health checks
 * [ ] Repo Graph app
 * [ ] Agent Runs UI
 * [ ] Settings modal
-* [ ] Account menu
+* [ ] Account menus
 
 ---
 
