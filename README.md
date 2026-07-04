@@ -1268,7 +1268,7 @@ scout/
 │   └── eval/                   # Eval harness, phase cases, manual cases
 │
 ├── harness-runs/               # Local eval outputs, gitignored
-├── docs/                       # Architecture, baselines, roadmap
+├── docs/                       # Architecture, planning, reports, testing
 ├── scripts/                    # DB setup, seeding, maintenance
 ├── docker-compose.yml
 └── README.md

@@ -29,7 +29,7 @@
 
 - `benchmarks/` → `harness/`
 - `benchmark-runs/` → `harness-runs/`
-- Lessons merged into `docs/LESSONS.md`
+- Lessons merged into `docs/planning/LESSONS.md`
 - `tasks/` removed
 - Package scripts updated with backward-compatible aliases
 

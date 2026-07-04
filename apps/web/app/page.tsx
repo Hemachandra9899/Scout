@@ -746,8 +746,6 @@ export default function Home() {
                       setMemoryUploadOpen(true);
                     } else if (action === "document-upload" || action === "file-upload") {
                       setDocumentUploadOpen(true);
-                    } else if (action === "memory-graph") {
-                      setActiveApp("memory-graph");
                     }
                   }}
                 />
@@ -797,16 +795,7 @@ export default function Home() {
           onClose={() => setAppsOpen(false)}
           onSelectApp={(app) => {
             setAppsOpen(false);
-            // Chat-mode "apps" become a composer mode instead of a panel.
-            if (app === "web-research") {
-              setComposerMode("web_research");
-              setActiveApp(null);
-            } else if (app === "github-analyzer") {
-              setComposerMode("github_repo");
-              setActiveApp(null);
-            } else {
-              setActiveApp(app);
-            }
+            setActiveApp(app);
           }}
         />
       )}

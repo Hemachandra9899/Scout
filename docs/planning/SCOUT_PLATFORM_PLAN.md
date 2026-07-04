@@ -94,7 +94,7 @@ dependencies and leverage. Estimated effort is relative (S/M/L), not calendar ti
 - Instrument the harness to record **latency, cost (tokens), and per-stage timing** per case
   (extend the existing `researchTrace` plumbing) into `summary.csv`.
 - Run the **current** router/retrieval against these sets → record baselines in
-  `docs/baselines/` (this is the number every later milestone must beat).
+  `docs/testing/baselines/` (this is the number every later milestone must beat).
 - **Eval gate:** new sets run green in CI (reporting mode, not blocking yet).
 - **Done when:** baseline routing accuracy + retrieval nDCG + p50/p95 latency + cost/query are recorded.
 - **Risk:** label quality. Mitigation: keep sets small, hand-verified, version-controlled.
@@ -368,7 +368,7 @@ debug.sandbox     = { used, tier, durationMs, toolCalls, stdoutBytes, timedOut, 
 ```
 
 ## Appendix C — Related docs
-- `docs/ARCHITECTURE.md` — current architecture & phase status.
-- `docs/GRAPHIFY_REFERENCE_NOTES.md` — repo graph reference.
-- `docs/SCOUT_SWARM_READINESS_PLAN.md` — *(to be written)* full agent/swarm safety spec (expands M7).
-- `docs/SCOUT_SYSTEM_AUDIT.md` — *(to be written)* detailed file-referenced audit (expands Section 1).
+- `docs/architecture/ARCHITECTURE.md` — current architecture & phase status.
+- `docs/reports/GRAPHIFY_REFERENCE_NOTES.md` — repo graph reference.
+- `docs/planning/SCOUT_SWARM_READINESS_PLAN.md` — *(to be written)* full agent/swarm safety spec (expands M7).
+- `docs/planning/SCOUT_SYSTEM_AUDIT.md` — *(to be written)* detailed file-referenced audit (expands Section 1).

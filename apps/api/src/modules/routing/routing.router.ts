@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@rlm-forge/database/prisma.js";
-import { routerAnswerSchema } from "./router.schema.js";
-import { answerWithRouter } from "./router.service.js";
+import { routerAnswerSchema } from "./routing.schema.js";
+import { answerWithRouter } from "./routing.service.js";
 
 async function ensureRouterProject(projectId: string) {
   await prisma.project.upsert({

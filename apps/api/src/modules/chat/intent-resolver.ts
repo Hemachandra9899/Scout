@@ -1,4 +1,4 @@
-import { routeScoutQuery } from "../router/router.service.js";
+import { routeScoutQuery } from "../routing/routing.service.js";
 
 /** Where a chat turn is dispatched. */
 export type ChatFlow =

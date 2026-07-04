@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { routeScoutQuery } from "../router.service.js";
+import { routeScoutQuery } from "../routing.service.js";
 
 /**
  * Locks in deterministic routing for every eval query plus the M3 collision guards.

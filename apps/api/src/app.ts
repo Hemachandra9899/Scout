@@ -9,7 +9,7 @@ import { researchJobsRouter } from "./modules/research-jobs/research-jobs.router
 import { documentsRouter } from "./modules/documents/documents.router.js";
 import { toolsRouter } from "./modules/tools/tools.router.js";
 import { conversationsRouter } from "./modules/conversations/conversations.router.js";
-import { routerRouter } from "./modules/router/router.router.js";
+import { routerRouter } from "./modules/routing/routing.router.js";
 import { graphReportsRouter } from "./modules/graph-reports/graph-reports.router.js";
 import { agentsRouter } from "./modules/agents/agents.router.js";
 import { memoriesRouter } from "./modules/memories/memories.router.js";

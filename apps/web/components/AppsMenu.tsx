@@ -12,8 +12,6 @@ const apps = [
   { id: "graph-reports", label: "Graph Reports", description: "Generated code graph reports" },
   { id: "documents", label: "Documents", description: "Uploaded project documents" },
   { id: "agent-runs", label: "Agent Runs", description: "Multi-step agent execution progress" },
-  { id: "web-research", label: "Web Research", description: "Deep web research mode" },
-  { id: "github-analyzer", label: "GitHub Repo Analyzer", description: "Analyze any public repository" },
 ];
 
 export function AppsMenu({ open, onClose, onSelectApp }: AppsMenuProps) {
