@@ -149,6 +149,15 @@ export default function Home() {
   const createProjectMutation = useCreateProject();
   const createConversation = useCreateConversation(selectedProjectId);
 
+  const graphAppActive = activeApp === "graph-reports" || activeApp === "repo-graph";
+  const graphProjectId = selectedProjectId || projects[0]?.id || "";
+  const { data: graphReport, isLoading: graphReportLoading } = useQuery({
+    queryKey: ["graph-report-latest", graphProjectId],
+    queryFn: () => api.getLatestGraphReport(graphProjectId),
+    enabled: graphAppActive && Boolean(graphProjectId),
+    retry: false,
+  });
+
   const { data: activeJobStatus } = useResearchJobStatus(activeJobId);
   const shouldFetchFullJob =
     activeJobStatus?.status === "COMPLETED" ||
@@ -468,6 +477,12 @@ export default function Home() {
                   ? "Memory Graph"
                   : activeApp === "agent-runs"
                   ? "Agent Runs"
+                  : activeApp === "documents"
+                  ? "Documents"
+                  : activeApp === "graph-reports"
+                  ? "Graph Reports"
+                  : activeApp === "repo-graph"
+                  ? "Repo Graph"
                   : activeConversationId
                   ? (conversations.find((c) => c.id === activeConversationId)?.title || "Chat")
                   : "Scout"}
@@ -530,6 +545,66 @@ export default function Home() {
                 projectId={selectedProjectId || projects[0]?.id || ""}
                 onClose={() => setActiveApp(null)}
               />
+            ) : activeApp === "documents" ? (
+              <div className="app-panel">
+                <div className="app-panel-header">
+                  <h2>Documents</h2>
+                  <button className="modal-close-btn" onClick={() => setActiveApp(null)} aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="app-panel-body">
+                  <DocumentsPanel
+                    documents={documents}
+                    onAskDocument={(doc) => {
+                      setActiveApp(null);
+                      setComposerMode("kb");
+                      setQuestion(`Summarize the document "${doc.title || doc.id}"`);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : graphAppActive ? (
+              <div className="app-panel">
+                <div className="app-panel-header">
+                  <h2>{activeApp === "repo-graph" ? "Repo Graph" : "Graph Reports"}</h2>
+                  <button className="modal-close-btn" onClick={() => setActiveApp(null)} aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="app-panel-body">
+                  {graphReportLoading ? (
+                    <div style={{ padding: 20, display: "flex", justifyContent: "center" }}>
+                      <div className="spinner" />
+                    </div>
+                  ) : graphReport?.report?.content ? (
+                    <>
+                      <MessageContent content={graphReport.report.content} />
+                      {graphReport.download?.markdown && (
+                        <a
+                          className="smallButton"
+                          href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${graphReport.download.markdown}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display: "inline-block", marginTop: 16 }}
+                        >
+                          ↓ Download GRAPH_REPORT.md
+                        </a>
+                      )}
+                    </>
+                  ) : (
+                    <p className="emptyText" style={{ padding: 20 }}>
+                      No graph report yet. Graphify a repo in chat — e.g.{" "}
+                      <code>graphify this repo https://github.com/owner/name</code> — then generate a
+                      report with <code>Generate GRAPH_REPORT.md</code>.
+                    </p>
+                  )}
+                </div>
+              </div>
             ) : (
               /* ── Chat view ── */
               <section className="messages-wrapper" aria-live="polite">
@@ -722,7 +797,16 @@ export default function Home() {
           onClose={() => setAppsOpen(false)}
           onSelectApp={(app) => {
             setAppsOpen(false);
-            setActiveApp(app);
+            // Chat-mode "apps" become a composer mode instead of a panel.
+            if (app === "web-research") {
+              setComposerMode("web_research");
+              setActiveApp(null);
+            } else if (app === "github-analyzer") {
+              setComposerMode("github_repo");
+              setActiveApp(null);
+            } else {
+              setActiveApp(app);
+            }
           }}
         />
       )}
