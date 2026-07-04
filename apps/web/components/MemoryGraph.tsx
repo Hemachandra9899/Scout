@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 interface Memory {
   id: string;
   projectId: string;
@@ -37,7 +39,7 @@ export function MemoryGraph({ projectId, onClose }: MemoryGraphProps) {
       const params = new URLSearchParams({ projectId });
       if (kindFilter) params.set("kind", kindFilter);
       if (scopeFilter) params.set("scope", scopeFilter);
-      const res = await fetch(`http://localhost:8000/memories?${params}`);
+      const res = await fetch(`${API_URL}/memories?${params}`);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setMemories(data.memories);
