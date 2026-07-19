@@ -14,6 +14,7 @@ export const uploadMemorySchema = z.object({
 
 export const listMemoriesQuerySchema = z.object({
   projectId: z.string().uuid(),
+  userId: z.string().optional(),
   kind: z.string().optional(),
   scope: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),

@@ -21,10 +21,12 @@ interface Memory {
 
 interface MemoryGraphProps {
   projectId: string;
+  /** Current user, once real auth exists. Omitted = global-scope memories only. */
+  userId?: string;
   onClose: () => void;
 }
 
-export function MemoryGraph({ projectId, onClose }: MemoryGraphProps) {
+export function MemoryGraph({ projectId, userId, onClose }: MemoryGraphProps) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [total, setTotal] = useState(0);
   const [kindFilter, setKindFilter] = useState("");
@@ -37,6 +39,7 @@ export function MemoryGraph({ projectId, onClose }: MemoryGraphProps) {
     setBusy(true);
     try {
       const params = new URLSearchParams({ projectId });
+      if (userId) params.set("userId", userId);
       if (kindFilter) params.set("kind", kindFilter);
       if (scopeFilter) params.set("scope", scopeFilter);
       const res = await fetch(`${API_URL}/memories?${params}`);
@@ -49,7 +52,7 @@ export function MemoryGraph({ projectId, onClose }: MemoryGraphProps) {
     } finally {
       setBusy(false);
     }
-  }, [projectId, kindFilter, scopeFilter]);
+  }, [projectId, userId, kindFilter, scopeFilter]);
 
   useEffect(() => {
     fetchMemories();

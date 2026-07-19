@@ -130,6 +130,7 @@ export default function Home() {
     flow: string;
     sources: unknown[];
     active: boolean;
+    cacheHit: boolean;
   } | null>(null);
   const plusBtnRef = useRef<HTMLButtonElement>(null);
   const isSendingRef = useRef(false);
@@ -221,6 +222,8 @@ export default function Home() {
     let networkDone = false;
     let sources: unknown[] = [];
 
+    let cacheHit = false;
+
     setStreaming({
       question: text,
       answer: "",
@@ -228,6 +231,7 @@ export default function Home() {
       flow: "",
       sources: [],
       active: true,
+      cacheHit: false,
     });
 
     // Producer: drain the SSE stream into the shared buffers.
@@ -244,6 +248,8 @@ export default function Home() {
           fullAnswer += data.delta ?? "";
         } else if (event === "sources") {
           sources = data.sources ?? [];
+        } else if (event === "done") {
+          cacheHit = Boolean(data.cacheHit);
         } else if (event === "error") {
           if (!fullAnswer) fullAnswer = `Error: ${data.error}`;
         }
@@ -308,7 +314,7 @@ export default function Home() {
     try {
       await pump;
       setStreaming((s) =>
-        s ? { ...s, answer: fullAnswer, thinking: "", sources, active: false } : s,
+        s ? { ...s, answer: fullAnswer, thinking: "", sources, active: false, cacheHit } : s,
       );
 
       setComposerMode("auto");
@@ -651,6 +657,21 @@ export default function Home() {
                                 {streaming.thinking || "Thinking"}
                                 {streaming.flow ? ` · ${streaming.flow}` : ""}…
                               </span>
+                            </div>
+                          )}
+                          {devMode && streaming.answer && streaming.cacheHit && (
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-secondary)",
+                                marginTop: 6,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                              title="Served from cache — no model call was made"
+                            >
+                              ⚡ cached
                             </div>
                           )}
                           {devMode && streaming.sources.length > 0 && (

@@ -36,12 +36,19 @@ export async function uploadMemory(input: {
 
 export async function listMemories(input: {
   projectId: string;
+  userId?: string;
   kind?: string;
   scope?: string;
   limit: number;
   offset: number;
 }) {
-  const where: Record<string, unknown> = { projectId: input.projectId };
+  // Same isolation rule as MemoryManager.search(): with a userId, show that
+  // user's memories plus global (userId=null) ones; without one, global only.
+  const userScopeWhere = input.userId
+    ? { OR: [{ userId: input.userId }, { userId: null }] }
+    : { userId: null };
+
+  const where: Record<string, unknown> = { projectId: input.projectId, ...userScopeWhere };
   if (input.kind) where.kind = input.kind;
   if (input.scope) where.scope = input.scope;
 

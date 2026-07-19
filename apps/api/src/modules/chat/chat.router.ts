@@ -5,6 +5,12 @@ import { chatStreamSchema } from "./chat.schema.js";
 import { resolveIntent } from "./intent-resolver.js";
 import { answerWithRouter } from "../routing/routing.service.js";
 import {
+  cacheGet,
+  cacheSet,
+  cacheKey,
+  CACHE_MODEL_TTL_MS,
+} from "@rlm-forge/knowledge/cache/index.js";
+import {
   enqueueResearchJob,
   getResearchJob,
   getResearchJobStatus,
@@ -13,6 +19,9 @@ import {
 const MODEL_SERVICE_URL =
   process.env.MODEL_SERVICE_URL || "http://model-service:8100";
 const RLM_RUNTIME_URL = process.env.RLM_RUNTIME_URL || "http://rlm-runtime:8787";
+const AGENT_JOB_MAX_WAIT_MS = Number(
+  process.env.CHAT_AGENT_JOB_MAX_WAIT_MS || 10 * 60 * 1000,
+);
 
 const DIRECT_PERSONA = [
   "You are Scout, an evidence-first AI research assistant.",
@@ -145,6 +154,30 @@ async function streamDirectAnswer(query: string, send: SseSend): Promise<string>
   return content;
 }
 
+/**
+ * Cache-aware wrapper around streamDirectAnswer. On a hit, replays the cached
+ * answer through the same chunked-token path used elsewhere (fast, still feels
+ * like streaming) instead of calling model-service again. On a miss, streams
+ * live and caches the completed content for next time.
+ */
+export async function streamDirectAnswerCached(
+  query: string,
+  send: SseSend,
+): Promise<{ content: string; cacheHit: boolean }> {
+  const key = cacheKey("directChatAnswer", query);
+  const cached = await cacheGet<string>(key);
+  if (cached.found && cached.value) {
+    await streamTextInChunks(cached.value, send);
+    return { content: cached.value, cacheHit: true };
+  }
+
+  const content = await streamDirectAnswer(query, send);
+  if (content.trim()) {
+    await cacheSet(key, content, CACHE_MODEL_TTL_MS);
+  }
+  return { content, cacheHit: false };
+}
+
 /** Run the agent flow via the existing BullMQ research-job pipeline instead of a raw fetch. */
 async function runAgentViaJob(
   projectId: string,
@@ -157,27 +190,44 @@ async function runAgentViaJob(
     const job = await enqueueResearchJob(projectId, conversationId, query);
     send("job_created", { jobId: job.id });
 
+    const startedAt = Date.now();
+
     return await new Promise((resolve) => {
+      const stop = (result: { content: string; sources: unknown[] }) => {
+        clearInterval(heartbeat);
+        clearInterval(interval);
+        resolve(result);
+      };
+
       const heartbeat = setInterval(() => {
         if (!isClosed()) send("heartbeat", {});
       }, 15000);
 
       const poll = async () => {
         if (isClosed()) {
-          clearInterval(heartbeat);
-          clearInterval(interval);
-          resolve({ content: "", sources: [] });
+          stop({ content: "", sources: [] });
           return;
         }
 
-        const status = await getResearchJobStatus(job.id);
+        if (Date.now() - startedAt > AGENT_JOB_MAX_WAIT_MS) {
+          const msg = `Agent job timed out after ${Math.round(AGENT_JOB_MAX_WAIT_MS / 1000)}s.`;
+          send("error", { error: msg });
+          stop({ content: `I ran into an error: ${msg}`, sources: [] });
+          return;
+        }
+
+        let status: Awaited<ReturnType<typeof getResearchJobStatus>>;
+        try {
+          status = await getResearchJobStatus(job.id);
+        } catch {
+          // Transient DB blip — try again on the next tick instead of crashing the poll loop.
+          return;
+        }
         if (!status) return;
 
         if (status.status === "QUEUED" || status.status === "RUNNING") {
           send("thinking", { label: "Agent", flow: "agent" });
         } else if (status.status === "COMPLETED") {
-          clearInterval(heartbeat);
-          clearInterval(interval);
           const full = await getResearchJob(job.id);
           const report = full?.reports?.[0];
           const content = report?.content ?? "";
@@ -185,13 +235,11 @@ async function runAgentViaJob(
           const sources = (metadata?.sources as unknown[]) ?? [];
           await streamTextInChunks(content, send);
           if (sources.length > 0) send("sources", { sources });
-          resolve({ content, sources });
+          stop({ content, sources });
         } else if (status.status === "FAILED") {
-          clearInterval(heartbeat);
-          clearInterval(interval);
           const msg = status.error ?? "Job failed";
           send("error", { error: msg });
-          resolve({ content: `I ran into an error: ${msg}`, sources: [] });
+          stop({ content: `I ran into an error: ${msg}`, sources: [] });
         }
       };
 
@@ -224,7 +272,7 @@ async function ensureConversation(
 ) {
   if (conversationId) {
     const existing = await prisma.conversation.findUnique({ where: { id: conversationId } });
-    if (existing) return existing;
+    if (existing && existing.projectId === projectId) return existing;
   }
   return prisma.conversation.create({
     data: { projectId, title: query.slice(0, 80) },
@@ -265,6 +313,7 @@ export async function chatRouter(app: FastifyInstance) {
     let assistantContent = "";
     let sources: unknown[] = [];
     let usedAgentJob = false;
+    let cacheHit = false;
 
     try {
       const decision = await resolveIntent({
@@ -282,7 +331,9 @@ export async function chatRouter(app: FastifyInstance) {
 
       if (decision.flow === "direct") {
         send("thinking", { label: "Thinking" });
-        assistantContent = await streamDirectAnswer(decision.normalizedQuery, send);
+        const direct = await streamDirectAnswerCached(decision.normalizedQuery, send);
+        assistantContent = direct.content;
+        cacheHit = direct.cacheHit;
       } else if (decision.flow === "agent") {
         usedAgentJob = true;
         send("thinking", { label: "Agent", flow: "agent" });
@@ -340,7 +391,7 @@ export async function chatRouter(app: FastifyInstance) {
         .catch(() => undefined);
     }
 
-    send("done", {});
+    send("done", { cacheHit });
     if (!closed) reply.raw.end();
   });
 }
