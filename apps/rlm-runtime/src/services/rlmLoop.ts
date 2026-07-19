@@ -5,8 +5,11 @@ import { ToolsClient } from "./toolsClient.ts";
 import { StrategyAgent } from "./strategyAgent.ts";
 import { AnswerSynthesizer } from "./answerSynthesizer.ts";
 import { extractSources, isGenericOrRawAnswer } from "./answerUtils.ts";
-import { IntentDetector } from "./intentDetector.ts";
-import { FastIntentDetector, type FastIntent } from "./fastIntentDetector.ts";
+import {
+  IntentDetector,
+  FastIntentDetector,
+  type FastIntent,
+} from "./fastIntentDetector.ts";
 import { contextLimitMessage, isContextTooLarge } from "./contextGuard.ts";
 import {
   buildCriticRetryMessage,

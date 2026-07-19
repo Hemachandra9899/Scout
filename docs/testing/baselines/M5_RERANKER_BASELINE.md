@@ -81,7 +81,7 @@ finalScore = lexicalScore * 0.55
 - `packages/knowledge/src/rerank/llm-reranker.ts` — Optional LLM reranker with deterministic fallback
 - `packages/knowledge/src/rerank/index.ts` — Re-exports
 - `packages/knowledge/src/research/evidence-reranker.ts` — Evidence surface adapter with `RERANKER_ENABLED` guard
-- `docs/baselines/M5_RERANKER_BASELINE.md`
+- `docs/testing/baselines/M5_RERANKER_BASELINE.md`
 
 ### Modified
 - `packages/knowledge/package.json` — Added rerank exports

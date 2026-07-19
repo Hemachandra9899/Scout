@@ -1,5 +1,5 @@
 import { request } from "../lib/api";
-import type { Project, ResearchJob } from "../types/api";
+import type { Project, ResearchJob } from "../lib/api";
 
 export function health() {
   return request<{ status: string; service: string }>("/health");

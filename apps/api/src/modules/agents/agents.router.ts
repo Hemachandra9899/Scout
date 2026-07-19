@@ -1,23 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import {
-  buildDeterministicAgentPlan,
-  executeAgentPlan,
-} from "@rlm-forge/knowledge/agent";
-import {
   agentRunParamsSchema,
   createAgentRunSchema,
 } from "./agents.schema.js";
 import {
-  appendAgentRunEvent,
   createAgentRun,
   getAgentRun,
-  updateAgentRun,
 } from "./agent-runs.store.js";
 import {
   agentExecutorEnabled,
-  getAgentExecutorBudget,
-  executeAgentTool,
 } from "./agent-tool-adapter.js";
+import { executeAgentRun } from "./agents.service.js";
 
 export async function agentsRouter(app: FastifyInstance) {
   app.post("/agents/runs", async (req, reply) => {
@@ -36,40 +29,7 @@ export async function agentsRouter(app: FastifyInstance) {
       query: body.query,
     });
 
-    queueMicrotask(async () => {
-      updateAgentRun(run.id, {
-        status: "running",
-      });
-
-      try {
-        const plan = buildDeterministicAgentPlan({
-          objective: body.query,
-          projectId: body.projectId,
-          userId: body.userId,
-        });
-
-        const result = await executeAgentPlan({
-          plan,
-          budget: getAgentExecutorBudget(),
-          onEvent: (event) => {
-            appendAgentRunEvent(run.id, event);
-          },
-          executeTool: async (tool, stepInput) => {
-            return executeAgentTool({ tool, stepInput });
-          },
-        });
-
-        updateAgentRun(run.id, {
-          status: result.status === "completed" ? "completed" : "failed",
-          result,
-        });
-      } catch (error) {
-        updateAgentRun(run.id, {
-          status: "failed",
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    });
+    queueMicrotask(() => executeAgentRun(run));
 
     return {
       status: "accepted",

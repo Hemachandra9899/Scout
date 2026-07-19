@@ -42,7 +42,7 @@ Research orchestrator performance improvements, source relevance gate, harness v
 ### Repo structure cleanup
 - `benchmarks/` → `harness/`
 - `benchmark-runs/` → `harness-runs/`
-- Lessons merged into `docs/LESSONS.md`
+- Lessons merged into `docs/planning/LESSONS.md`
 - `tasks/` removed
 - Package scripts: `harness:eval`, `harness:ci`, `harness:analyze`, `harness:research` (with backward-compat aliases)
 

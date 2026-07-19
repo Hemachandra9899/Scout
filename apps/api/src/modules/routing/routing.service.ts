@@ -10,14 +10,10 @@ import {
   looksLikeAgentExecutorRequest,
   executeAgentTool,
 } from "../agents/agent-tool-adapter.js";
-import { evaluateFaithfulness, type FaithfulnessCriticResult } from "./faithfulness-critic.js";
+import { evaluateFaithfulness } from "./faithfulness-critic.js";
 import {
   buildProjectGraphContext,
 } from "@rlm-forge/knowledge/graph/project-context-graph.js";
-import {
-  classifyRouteIntent,
-  routeIntentToDecision,
-} from "@rlm-forge/knowledge/router/intent-classifier.js";
 import { MemoryManager } from "@rlm-forge/knowledge/memory/memory-manager.js";
 import type { ScoutMemory } from "@rlm-forge/knowledge/memory/memory-types.js";
 import { buildAndPersistRepoGraph } from "@rlm-forge/knowledge";
@@ -27,24 +23,39 @@ import {
   executeAgentPlan,
 } from "@rlm-forge/knowledge/agent";
 
-export type RouterTier = 1 | 2 | 3;
+import { classifyRouteIntent } from "@rlm-forge/knowledge/router/intent-classifier.js";
 
-export type RouterDecision = {
-  tier: RouterTier;
-  route: "direct_tool" | "research_orchestrator" | "sandbox" | "direct_model";
-  tool: "search_kb" | "github_repo" | "web_research" | "sandbox" | "direct_model" | "query_graph";
-  reason: string;
-};
+import type { RouterDecision } from "./routing-decision.js";
+import {
+  routeScoutQuery,
+  routeDebug,
+  isMemoRepoQuery,
+  isRepoMemoryQuestion,
+  isGraphifyRepoQuery,
+  isUpdateRepoGraphQuery,
+  isRepoGraphReportQuery,
+  isClearlyInsufficientEvidenceQuery,
+  extractGithubRepoUrl,
+  isReverseLinkedListQuestion,
+} from "./routing-decision.js";
+import type { RouterAnswerInput, MemoryTimingDebug } from "./deterministic-fastpaths.js";
+import {
+  deterministicNoEvidenceResponse,
+  answerSimpleListComputation,
+  answerReverseLinkedListQuestion,
+  partialResearchTimeoutResponse,
+  notEnoughEvidenceAnswer,
+  extractAnswerText,
+  extractCitations,
+  extractEvidenceCoverage,
+  shouldRunFocusedRetry,
+  buildFocusedRetryQuery,
+  callModelService,
+  callRlmRuntime,
+  withTimeout,
+} from "./deterministic-fastpaths.js";
 
-export type RouterAnswerInput = {
-  projectId: string;
-  userId?: string;
-  query: string;
-  setupMessages?: Array<{
-    role?: string;
-    content?: string;
-  }>;
-};
+export { routeScoutQuery };
 
 const MODEL_SERVICE_URL =
   process.env.MODEL_SERVICE_URL || "http://model-service:8100";
@@ -69,12 +80,6 @@ const ROUTER_RESEARCH_TIMEOUT_MS = Number(
 );
 const ROUTER_FAITHFULNESS_THRESHOLD = Number(
   process.env.ROUTER_FAITHFULNESS_THRESHOLD || 0.7,
-);
-const ROUTER_CODING_TIMEOUT_MS = Number(
-  process.env.ROUTER_CODING_TIMEOUT_MS || 45_000,
-);
-const ROUTER_CODING_MAX_TOKENS = Number(
-  process.env.ROUTER_CODING_MAX_TOKENS || 900,
 );
 
 const FOCUSED_RETRY_MAX_RESOURCES = Number(
@@ -153,7 +158,6 @@ async function recallMemories(input: RouterAnswerInput): Promise<ScoutMemory[]> 
   }).slice(0, 10);
 }
 
-// Why a memory is (or isn't) relevant to the current query: entity + keyword overlap.
 function memoryRelevance(query: string, memory: ScoutMemory): { score: number; reasons: string[] } {
   const q = query.toLowerCase();
   const text = memory.text.toLowerCase();
@@ -179,10 +183,6 @@ function memoryRelevance(query: string, memory: ScoutMemory): { score: number; r
   return { score, reasons };
 }
 
-// Decide which recalled memories are worth injecting into the answer prompt.
-// Preferences are always kept (style/constraints). Other kinds are kept only when
-// they actually overlap the query — with a safe fallback so we never inject nothing
-// when relevant memories exist.
 function selectInjectableMemories(query: string, memories: ScoutMemory[]): ScoutMemory[] {
   if (memories.length === 0) return [];
 
@@ -252,7 +252,36 @@ function buildMemoryContext(memories: ScoutMemory[], query: string): string {
   return lines.join("\n").slice(0, 4000);
 }
 
-function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: string, curatorDebug?: Record<string, unknown> | null) {
+function memoryUseReason(memory: { kind: string; scope: string; metadata?: unknown }) {
+  const metadata = memory.metadata as Record<string, unknown> | null;
+  const tier = metadata?.tier as string | undefined;
+
+  if (memory.kind === "source_quality") return "Boosts previously useful source.";
+  if (memory.kind === "source_failure") return "Avoids previously bad source.";
+  if (memory.kind === "preference") return "User preference/context.";
+  if (memory.kind === "durable_fact") return "Previously stored durable context.";
+  if (memory.kind === "decision") return "Prior project decision.";
+  if (memory.kind === "task_trace") return "Prior task trace.";
+  return tier ? `Relevant ${tier} memory.` : "Relevant memory.";
+}
+
+export type MemoryDebugResult = {
+  setupWritten: number;
+  recallUsed: boolean;
+  recalledCount: number;
+  recalledKinds: string[];
+  recalledMemoryIds: string[];
+  recalledMemoryDetails: Array<Record<string, unknown>>;
+  injectedCount: number;
+  blockedSourceAvoided: boolean;
+  sourceReuseUsed: boolean;
+  usedMemories: Array<Record<string, unknown>>;
+  memoryCuratorUsed?: boolean;
+  memoryWrittenCount?: number;
+  memorySkippedCount?: number;
+};
+
+function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: string, curatorDebug?: Record<string, unknown> | null): MemoryDebugResult {
   const recalledKinds = [...new Set(memories.map((m) => m.kind))];
   const injectableIds = new Set(
     selectInjectableMemories(query, memories).map((m) => m.id),
@@ -310,19 +339,6 @@ function memoryDebug(memories: ScoutMemory[], setupWritten: number, query: strin
   };
 }
 
-function memoryUseReason(memory: { kind: string; scope: string; metadata?: unknown }) {
-  const metadata = memory.metadata as Record<string, unknown> | null;
-  const tier = metadata?.tier as string | undefined;
-
-  if (memory.kind === "source_quality") return "Boosts previously useful source.";
-  if (memory.kind === "source_failure") return "Avoids previously bad source.";
-  if (memory.kind === "preference") return "User preference/context.";
-  if (memory.kind === "durable_fact") return "Previously stored durable context.";
-  if (memory.kind === "decision") return "Prior project decision.";
-  if (memory.kind === "task_trace") return "Prior task trace.";
-  return tier ? `Relevant ${tier} memory.` : "Relevant memory.";
-}
-
 function routeNeedsMemory(input: {
   query: string;
   decision: RouterDecision;
@@ -355,683 +371,6 @@ function routeNeedsMemory(input: {
   }
 }
 
-function claimToText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return String(record.claim ?? record.text ?? record.anchor ?? JSON.stringify(record));
-  }
-  return String(value ?? "");
-}
-
-function shouldRunFocusedRetry(input: {
-  decision: RouterDecision;
-  critic: FaithfulnessCriticResult;
-}): boolean {
-  if (input.decision.tool !== "web_research") return false;
-  if (input.critic.verdict !== "retry") return false;
-
-  const missingAnchors = input.critic.missingAnchors ?? [];
-  const weakClaims = input.critic.weakClaims ?? [];
-  const unsupportedClaims = input.critic.unsupportedClaims ?? [];
-
-  return (
-    missingAnchors.length > 0 ||
-    weakClaims.length > 0 ||
-    unsupportedClaims.length > 0 ||
-    input.critic.supportedRatio < ROUTER_FAITHFULNESS_THRESHOLD
-  );
-}
-
-function buildFocusedRetryQuery(input: {
-  originalQuery: string;
-  critic: FaithfulnessCriticResult;
-}): string {
-  const anchors = [
-    ...(input.critic.missingAnchors ?? []),
-    ...(input.critic.weakClaims ?? []).map(claimToText).slice(0, 3),
-    ...(input.critic.unsupportedClaims ?? []).map(claimToText).slice(0, 3),
-  ]
-    .map((x) => String(x).trim())
-    .filter(Boolean)
-    .slice(0, 6);
-
-  if (anchors.length === 0) {
-    return input.originalQuery;
-  }
-
-  return [
-    input.originalQuery,
-    "",
-    "Focused recovery: find reliable evidence only for these missing or weak points:",
-    ...anchors.map((anchor) => `- ${anchor}`),
-  ].join("\n");
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isRetryableModelError(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
-
-  return (
-    text.includes("ResourceExhausted") ||
-    text.includes("workers are busy") ||
-    text.includes("Service Unavailable") ||
-    text.includes("503") ||
-    text.includes("502") ||
-    text.includes("504") ||
-    text.toLowerCase().includes("timeout")
-  );
-}
-
-function modelCandidatesForMode(
-  mode: "coding" | "reasoning",
-): Array<string | undefined> {
-  const values =
-    mode === "coding"
-      ? [
-          process.env.ROUTER_CODER_MODEL,
-          process.env.ROUTER_CODER_FALLBACK_MODEL,
-          process.env.ROUTER_CODER_FALLBACK_MODEL_2,
-        ]
-      : [
-          process.env.ROUTER_REASONING_MODEL,
-          process.env.ROUTER_REASONING_FALLBACK_MODEL,
-          process.env.ROUTER_REASONING_FALLBACK_MODEL_2,
-        ];
-
-  const filtered = values.filter((value): value is string => Boolean(value));
-  return filtered.length > 0 ? filtered : [undefined];
-}
-
-function hasGithubRepoUrl(query: string): boolean {
-  return /https?:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/i.test(query);
-}
-
-function extractGithubRepoUrl(query: string): string | null {
-  return (
-    query.match(/https?:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:[/?#][^\s]*)?/i)?.[0] ??
-    null
-  );
-}
-
-function isMemoRepoQuery(query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    hasGithubRepoUrl(query) &&
-    (
-      q.includes("memo this repo") ||
-      q.includes("remember this repo") ||
-      q.includes("save this repo") ||
-      q.includes("store this repo") ||
-      q.includes("analyze and save") ||
-      q.includes("remember repo")
-    )
-  );
-}
-
-function isRepoMemoryQuestion(query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    q.includes("this repo") ||
-    q.includes("the repo") ||
-    q.includes("repository") ||
-    q.includes("codebase") ||
-    q.includes("important files") ||
-    q.includes("modules")
-  );
-}
-
-function isUpdateRepoGraphQuery(query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    hasGithubRepoUrl(query) &&
-    (
-      q.includes("update repo graph") ||
-      q.includes("regraphify") ||
-      q.includes("refresh repo graph") ||
-      q.includes("update the codebase graph") ||
-      q.includes("refresh the codebase graph")
-    )
-  );
-}
-
-function isGraphifyRepoQuery(query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    hasGithubRepoUrl(query) &&
-    (
-      q.includes("graphify") ||
-      q.includes("graph this repo") ||
-      q.includes("build graph") ||
-      q.includes("build code graph") ||
-      q.includes("build repo graph") ||
-      (q.includes("code graph") && q.includes("repo"))
-    )
-  );
-}
-
-function isRepoGraphQuestion(query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    q.includes("repo graph") ||
-    q.includes("code graph") ||
-    q.includes("graph query") ||
-    q.includes("query graph") ||
-    (q.includes("graph") && q.includes("entity")) ||
-    (q.includes("graph") && q.includes("relation"))
-  );
-}
-
-function isRepoGraphReportQuery(query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    q.includes("graph report") ||
-    q.includes("repo graph report") ||
-    q.includes("graph_report.md") ||
-    q.includes("graph_report") ||
-    q.includes("architecture graph report") ||
-    q.includes("summarize the codebase graph") ||
-    (q.includes("generate") && q.includes("graph") && q.includes("report"))
-  );
-}
-
-function includesAny(query: string, terms: string[]): boolean {
-  const q = query.toLowerCase();
-  return terms.some((term) => q.includes(term.toLowerCase()));
-}
-
-function isClearlyInsufficientEvidenceQuery(query: string): boolean {
-  const q = query.toLowerCase();
-
-  return (
-    q.includes("non-uploaded") ||
-    q.includes("private salary") ||
-    q.includes("unreleased") ||
-    q.includes("exact unreleased") ||
-    q.includes("will launch next month") ||
-    q.includes("launch next month") ||
-    q.includes("future api endpoint") ||
-    q.includes("not uploaded") ||
-    q.includes("private document") ||
-    q.includes("non-uploaded document")
-  );
-}
-
-function deterministicNoEvidenceResponse(
-  input: RouterAnswerInput,
-  decision: RouterDecision,
-  memory: ReturnType<typeof memoryDebug>,
-  reason = "The query asks for private, unreleased, future, or unavailable information.",
-  memoryTiming?: MemoryTimingDebug,
-) {
-  const answerMarkdown = [
-    "I do not have enough evidence to answer this confidently.",
-    "",
-    reason,
-    "",
-    "I could not find a reliable uploaded source or verified evidence in the available project context.",
-  ].join("\n");
-
-  const faithfulnessResult: FaithfulnessCriticResult = {
-    passed: true,
-    score: 1,
-    supportedRatio: 1,
-    relevanceRatio: 1,
-    unsupportedClaims: [],
-    weakClaims: [],
-    missingAnchors: [],
-    verdict: "accept",
-    fixHint: "",
-    mode: "heuristic",
-  };
-
-  return {
-    status: "no_evidence",
-    route: decision,
-    answer: answerMarkdown,
-    critic: faithfulnessResult,
-    ui: {
-      answerMarkdown,
-      citations: [],
-      evidenceCoverage: {
-        hasEvidence: false,
-        claimCount: 0,
-        supportedClaimCount: 0,
-        unsupportedClaimCount: 0,
-        missing: [reason],
-      },
-      faithfulness: faithfulnessResult,
-    },
-    debug: {
-      noEvidenceTrap: true,
-      query: input.query,
-      reason,
-      memory,
-      routing: routeDebug(input.query),
-      ...(memoryTiming ? { memoryTiming } : {}),
-    },
-  };
-}
-
-// Collision guard: a coding/algorithm question that has no live web/API signal.
-// Prevents "compare these two arrays in python" (code) from being captured by the
-// web_research keyword "compare"/"api", while leaving real API queries untouched.
-function looksLikePureCodeQuery(query: string): boolean {
-  const q = query.toLowerCase();
-  const codeSignals = [
-    "leetcode",
-    "linked list",
-    "binary tree",
-    "algorithm",
-    "time complexity",
-    "space complexity",
-    "recursion",
-    "reverse a",
-    "two sum",
-    "big-o",
-    "big o notation",
-  ];
-  const langSignals = ["python", "javascript", "typescript", "c++", "golang"];
-  const hasCode =
-    codeSignals.some((t) => q.includes(t)) ||
-    langSignals.some((t) => q.includes(t));
-  if (!hasCode) return false;
-
-  const webSignals = [
-    "api",
-    "sdk",
-    "docs",
-    "documentation",
-    "oauth",
-    "authentication",
-    "authenticate",
-    "endpoint",
-    "webhook",
-    "rate limit",
-    "http://",
-    "https://",
-    "latest",
-    "news",
-    "pricing",
-    "changelog",
-  ];
-  return !webSignals.some((t) => q.includes(t));
-}
-
-// Collision guard: an uploaded/local document question that also mentions API terms
-// (e.g. "what does this api key in my uploaded file do") should hit the KB, not the web.
-function looksLikeUploadedDocQuery(query: string): boolean {
-  const q = query.toLowerCase();
-  return [
-    "uploaded document",
-    "uploaded",
-    "this file",
-    "from the file",
-    "from uploaded",
-    "my document",
-    "attached file",
-    "in my pdf",
-  ].some((t) => q.includes(t));
-}
-
-export function routeScoutQuery(query: string): RouterDecision {
-  return routeIntentToDecision(classifyRouteIntent(query));
-}
-
-function routeDebug(query: string) {
-  const intent = classifyRouteIntent(query);
-
-  return {
-    tool: intent.tool,
-    tier: intent.tier,
-    intent: intent.intent,
-    confidence: intent.confidence,
-    normalizedQuery: intent.normalizedQuery,
-    signals: intent.signals,
-    analysisAngles: intent.analysisAngles,
-    reason: intent.reason,
-    source: intent.source,
-  };
-}
-
-function extractAnswerText(value: unknown): string {
-  if (!value) return "";
-
-  const data = value as Record<string, unknown>;
-
-  if (typeof data === "string") return data;
-  if (typeof (data as any)?.ui?.answerMarkdown === "string") return (data as any).ui.answerMarkdown;
-  if (typeof (data as any)?.answer?.markdown === "string") return (data as any).answer.markdown;
-  if (typeof (data as any)?.answer?.answer === "string") return (data as any).answer.answer;
-  if (typeof (data as any)?.answer === "string") return data.answer as string;
-  if (typeof (data as any)?.final === "string") return data.final as string;
-
-  try {
-    return JSON.stringify(data, null, 2);
-  } catch {
-    return String(data);
-  }
-}
-
-function extractCitations(value: unknown): Array<{ title?: string | null; url?: string | null }> {
-  const data = value as any;
-  return (
-    data?.ui?.citations ??
-    data?.answer?.citations ??
-    data?.sources ??
-    []
-  );
-}
-
-function extractEvidenceCoverage(value: unknown): Record<string, unknown> {
-  const data = value as any;
-
-  return (
-    data?.ui?.evidenceCoverage ??
-    data?.evidenceCoverage ??
-    data?.evidencePack?.coverage ??
-    data?.answer?.evidenceCoverage ??
-    data?.answer?.evidencePack?.coverage ??
-    data?.rawToolResult?.evidencePack?.coverage ??
-    {
-      hasEvidence: false,
-      claimCount: 0,
-      supportedClaimCount: 0,
-      weakClaimCount: 0,
-      unsupportedClaimCount: 0,
-      missing: ["No evidence coverage returned"],
-    }
-  );
-}
-
-function isSimpleListComputation(query: string): boolean {
-  return (
-    /\[[\d,\s.-]+\]/.test(query) &&
-    query.toLowerCase().includes("sort") &&
-    query.toLowerCase().includes("duplicates") &&
-    query.toLowerCase().includes("mean")
-  );
-}
-
-function answerSimpleListComputation(query: string): Record<string, unknown> | null {
-  if (!isSimpleListComputation(query)) return null;
-
-  const match = query.match(/\[([\d,\s.-]+)\]/);
-  const nums = match?.[1]
-    .split(",")
-    .map((x) => Number(x.trim()))
-    .filter((x) => Number.isFinite(x)) ?? [];
-
-  if (nums.length === 0) return null;
-
-  const unique = [...new Set(nums)].sort((a, b) => a - b);
-  const mean = unique.reduce((a, b) => a + b, 0) / unique.length;
-
-  return {
-    status: "ok",
-    route: {
-      tier: 3,
-      route: "direct_tool",
-      tool: "sandbox",
-      reason: "Simple deterministic list computation handled without model latency.",
-    },
-    answer: `Sorted unique numbers: [${unique.join(", ")}]\n\nMean: ${mean}`,
-    ui: {
-      answerMarkdown: `Sorted unique numbers: [${unique.join(", ")}]\n\nMean: ${mean}`,
-      citations: [],
-      evidenceCoverage: {},
-    },
-  };
-}
-
-function isReverseLinkedListQuestion(query: string): boolean {
-  const q = query.toLowerCase();
-  return q.includes("reverse") && q.includes("linked list");
-}
-
-function answerReverseLinkedListQuestion(query: string) {
-  const answerMarkdown = [
-    "Use three pointers: `prev`, `current`, and `next`.",
-    "",
-    "```python",
-    "class ListNode:",
-    "    def __init__(self, val=0, next=None):",
-    "        self.val = val",
-    "        self.next = next",
-    "",
-    "def reverseList(head):",
-    "    prev = None",
-    "    current = head",
-    "",
-    "    while current:",
-    "        next_node = current.next",
-    "        current.next = prev",
-    "        prev = current",
-    "        current = next_node",
-    "",
-    "    return prev",
-    "```",
-    "",
-    "**Time complexity:** `O(n)` because each node is visited once.",
-    "",
-    "**Space complexity:** `O(1)` because the reversal is done in place.",
-  ].join("\n");
-
-  return {
-    status: "ok",
-    route: {
-      tier: 1,
-      route: "direct_model",
-      tool: "direct_model",
-      reason: "Canonical simple algorithm question answered with deterministic fast path.",
-    },
-    answer: answerMarkdown,
-    ui: {
-      answerMarkdown,
-      citations: [],
-      evidenceCoverage: {
-        hasEvidence: false,
-        claimCount: 0,
-        supportedClaimCount: 0,
-        weakClaimCount: 0,
-        unsupportedClaimCount: 0,
-        missing: [],
-      },
-    },
-    critic: {
-      passed: true,
-      score: 1,
-      supportedRatio: 1,
-      relevanceRatio: 1,
-      unsupportedClaims: [],
-      weakClaims: [],
-      missingAnchors: [],
-      verdict: "accept",
-      fixHint: "",
-      mode: "heuristic",
-    },
-    debug: {
-      fastCodingPath: true,
-      canonical: "reverse-linked-list",
-      routing: routeDebug(query),
-    },
-  };
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${ms}ms`));
-    }, ms);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
-async function callModelServiceOnce(
-  mode: "coding" | "reasoning",
-  query: string,
-  model?: string,
-): Promise<string> {
-  const response = await fetch(`${MODEL_SERVICE_URL}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      mode,
-      ...(model ? { model } : {}),
-      messages: [{ role: "user", content: query }],
-      temperature: mode === "coding" ? 0.2 : 0.4,
-      top_p: 0.8,
-      max_tokens: mode === "coding" ? ROUTER_CODING_MAX_TOKENS : 900,
-    }),
-  });
-
-  const text = await response.text();
-
-  let data: any = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { rawText: text };
-  }
-
-  if (!response.ok) {
-    throw new Error(`model-service failed: ${response.status} ${text}`);
-  }
-
-  return String(data.content ?? "");
-}
-
-async function callModelService(
-  mode: "coding" | "reasoning",
-  query: string,
-): Promise<string> {
-  let lastError: unknown = null;
-
-  for (const model of modelCandidatesForMode(mode)) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        return await callModelServiceOnce(mode, query, model);
-      } catch (error) {
-        lastError = error;
-
-        if (!isRetryableModelError(error)) {
-          throw error;
-        }
-
-        await sleep(1_000 * Math.pow(2, attempt));
-      }
-    }
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(String(lastError));
-}
-
-// agentExecutorEnabled, looksLikeAgentExecutorRequest,
-// getAgentExecutorBudget, executeAgentTool moved to
-// ../agents/agent-tool-adapter.ts
-
-async function callRlmRuntime(input: RouterAnswerInput): Promise<unknown> {
-  const response = await fetch(`${RLM_RUNTIME_URL}/execute`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      projectId: input.projectId,
-      query: input.query,
-      maxSteps: 5,
-      maxDepth: 2,
-    }),
-  });
-
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-
-  if (!response.ok) {
-    throw new Error(`rlm-runtime failed: ${response.status} ${text}`);
-  }
-
-  return data;
-}
-
-function notEnoughEvidenceAnswer(query: string): string {
-  return [
-    "I do not have enough evidence to answer this confidently.",
-    "",
-    `Query: ${query}`,
-    "",
-    "I could not find a relevant uploaded document or reliable source in the available project context.",
-  ].join("\n");
-}
-
-function partialResearchTimeoutResponse(
-  decision: RouterDecision,
-  error: unknown,
-  query: string,
-  memory: ReturnType<typeof memoryDebug>,
-  memoryTiming?: MemoryTimingDebug,
-) {
-  const reason = error instanceof Error ? error.message : String(error);
-  const answerMarkdown = [
-    "I could not complete web research within the time limit.",
-    "",
-    "I do not have enough evidence to answer this confidently.",
-    "",
-    `Reason: ${reason}`,
-  ].join("\n");
-
-  const critic = evaluateFaithfulness({
-    query,
-    answerMarkdown,
-    threshold: ROUTER_FAITHFULNESS_THRESHOLD,
-  });
-
-  return {
-    status: "partial",
-    route: decision,
-    critic,
-    ui: {
-      answerMarkdown,
-      citations: [],
-      evidenceCoverage: {
-        hasEvidence: false,
-        claimCount: 0,
-        supportedClaimCount: 0,
-        weakClaimCount: 0,
-        unsupportedClaimCount: 0,
-        missing: [reason],
-      },
-      faithfulness: critic,
-    },
-    answer: answerMarkdown,
-    error: reason,
-    debug: { memory, ...(memoryTiming ? { memoryTiming } : {}), memoryCurator: memoryManager.getLastCuratorDebug(), routing: routeDebug(query) },
-  };
-}
-
-type MemoryTimingDebug = {
-  lazy: boolean;
-  routeNeedsMemory: boolean;
-  skipped: boolean;
-  setupWriteMs: number;
-  recallMs: number;
-  reason: string;
-};
-
 async function getMemoryForRoute(input: {
   projectId: string;
   userId?: string;
@@ -1039,7 +378,7 @@ async function getMemoryForRoute(input: {
   setupMessages?: Array<{ role?: string; content?: string }>;
   needsMemory: boolean;
 }): Promise<{
-  memory: ReturnType<typeof memoryDebug>;
+  memory: MemoryDebugResult;
   memoryContext: string;
   timing: MemoryTimingDebug;
 }> {
@@ -1108,17 +447,7 @@ async function getMemoryForRoute(input: {
 
 export async function answerWithRouter(input: RouterAnswerInput) {
   const intent = classifyRouteIntent(input.query);
-  const routingDebug = {
-    tool: intent.tool,
-    tier: intent.tier,
-    intent: intent.intent,
-    confidence: intent.confidence,
-    normalizedQuery: intent.normalizedQuery,
-    signals: intent.signals,
-    analysisAngles: intent.analysisAngles,
-    reason: intent.reason,
-    source: intent.source,
-  };
+  const routingDebug = routeDebug(input.query);
   const decision: RouterDecision = {
     tier: intent.tier,
     route: intent.route,

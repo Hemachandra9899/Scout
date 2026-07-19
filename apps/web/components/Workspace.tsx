@@ -1,4 +1,4 @@
-import type { Project, ResearchJob, Report, AgentRun, AgentStep } from "../types/api";
+import type { Project, ResearchJob, Report, AgentRun, AgentStep } from "../lib/api";
 
 type Props = {
   selectedProject: Project | undefined;

@@ -15,6 +15,27 @@ export function listProjectJobs(projectId: string) {
   });
 }
 
+/** Create the ResearchJob DB row and enqueue it. Shared by REST and chat flows. */
+export async function enqueueResearchJob(
+  projectId: string,
+  conversationId: string,
+  question: string,
+) {
+  const job = await prisma.researchJob.create({
+    data: {
+      projectId,
+      conversationId,
+      question,
+      status: "QUEUED",
+    },
+  });
+
+  const queue = createResearchQueue();
+  await queue.add("run-research", { researchJobId: job.id });
+
+  return job;
+}
+
 export async function createResearchJob(input: CreateResearchJobInput) {
   const conversation = input.conversationId
     ? await prisma.conversation.findUnique({
@@ -31,20 +52,10 @@ export async function createResearchJob(input: CreateResearchJobInput) {
     throw new Error("Conversation not found");
   }
 
-  const job = await prisma.researchJob.create({
-    data: {
-      projectId: input.projectId,
-      conversationId: conversation.id,
-      question: input.question,
-      status: "QUEUED",
-    },
-  });
-
   await prisma.chatMessage.create({
     data: {
       projectId: input.projectId,
       conversationId: conversation.id,
-      researchJobId: job.id,
       role: "user",
       content: input.question,
     },
@@ -58,10 +69,7 @@ export async function createResearchJob(input: CreateResearchJobInput) {
     },
   });
 
-  const queue = createResearchQueue();
-  await queue.add("run-research", {
-    researchJobId: job.id,
-  });
+  const job = await enqueueResearchJob(input.projectId, conversation.id, input.question);
 
   return {
     jobId: job.id,

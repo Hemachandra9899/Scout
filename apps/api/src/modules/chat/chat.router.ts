@@ -3,7 +3,12 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@rlm-forge/database/prisma.js";
 import { chatStreamSchema } from "./chat.schema.js";
 import { resolveIntent } from "./intent-resolver.js";
-import { answerWithRouter } from "../router/router.service.js";
+import { answerWithRouter } from "../routing/routing.service.js";
+import {
+  enqueueResearchJob,
+  getResearchJob,
+  getResearchJobStatus,
+} from "../research-jobs/research-jobs.service.js";
 
 const MODEL_SERVICE_URL =
   process.env.MODEL_SERVICE_URL || "http://model-service:8100";
@@ -140,14 +145,64 @@ async function streamDirectAnswer(query: string, send: SseSend): Promise<string>
   return content;
 }
 
-async function runAgent(projectId: string, query: string): Promise<unknown> {
-  const response = await fetch(`${RLM_RUNTIME_URL}/execute`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ projectId, query, maxSteps: 5, maxDepth: 2 }),
-  });
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
+/** Run the agent flow via the existing BullMQ research-job pipeline instead of a raw fetch. */
+async function runAgentViaJob(
+  projectId: string,
+  conversationId: string,
+  query: string,
+  send: SseSend,
+  isClosed: () => boolean,
+): Promise<{ content: string; sources: unknown[] }> {
+  try {
+    const job = await enqueueResearchJob(projectId, conversationId, query);
+    send("job_created", { jobId: job.id });
+
+    return await new Promise((resolve) => {
+      const heartbeat = setInterval(() => {
+        if (!isClosed()) send("heartbeat", {});
+      }, 15000);
+
+      const poll = async () => {
+        if (isClosed()) {
+          clearInterval(heartbeat);
+          clearInterval(interval);
+          resolve({ content: "", sources: [] });
+          return;
+        }
+
+        const status = await getResearchJobStatus(job.id);
+        if (!status) return;
+
+        if (status.status === "QUEUED" || status.status === "RUNNING") {
+          send("thinking", { label: "Agent", flow: "agent" });
+        } else if (status.status === "COMPLETED") {
+          clearInterval(heartbeat);
+          clearInterval(interval);
+          const full = await getResearchJob(job.id);
+          const report = full?.reports?.[0];
+          const content = report?.content ?? "";
+          const metadata = report?.metadata as Record<string, unknown> | undefined;
+          const sources = (metadata?.sources as unknown[]) ?? [];
+          await streamTextInChunks(content, send);
+          if (sources.length > 0) send("sources", { sources });
+          resolve({ content, sources });
+        } else if (status.status === "FAILED") {
+          clearInterval(heartbeat);
+          clearInterval(interval);
+          const msg = status.error ?? "Job failed";
+          send("error", { error: msg });
+          resolve({ content: `I ran into an error: ${msg}`, sources: [] });
+        }
+      };
+
+      const interval = setInterval(poll, 500);
+      poll();
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    send("error", { error: message });
+    return { content: `I ran into an error: ${message}`, sources: [] };
+  }
 }
 
 async function ensureProject(projectId: string) {
@@ -209,6 +264,7 @@ export async function chatRouter(app: FastifyInstance) {
 
     let assistantContent = "";
     let sources: unknown[] = [];
+    let usedAgentJob = false;
 
     try {
       const decision = await resolveIntent({
@@ -227,6 +283,18 @@ export async function chatRouter(app: FastifyInstance) {
       if (decision.flow === "direct") {
         send("thinking", { label: "Thinking" });
         assistantContent = await streamDirectAnswer(decision.normalizedQuery, send);
+      } else if (decision.flow === "agent") {
+        usedAgentJob = true;
+        send("thinking", { label: "Agent", flow: "agent" });
+        const agentResult = await runAgentViaJob(
+          projectId,
+          conversation.id,
+          decision.normalizedQuery,
+          send,
+          () => closed,
+        );
+        assistantContent = agentResult.content;
+        sources = agentResult.sources;
       } else {
         const label =
           decision.flow === "web_research"
@@ -238,14 +306,11 @@ export async function chatRouter(app: FastifyInstance) {
                 : "Working";
         send("thinking", { label, flow: decision.flow });
 
-        const result =
-          decision.flow === "agent"
-            ? await runAgent(projectId, decision.normalizedQuery)
-            : await answerWithRouter({
-                projectId,
-                userId: input.userId,
-                query: decision.normalizedQuery,
-              });
+        const result = await answerWithRouter({
+          projectId,
+          userId: input.userId,
+          query: decision.normalizedQuery,
+        });
 
         assistantContent = extractAnswer(result);
         sources = extractSources(result);
@@ -258,7 +323,7 @@ export async function chatRouter(app: FastifyInstance) {
       send("error", { error: message });
     }
 
-    if (assistantContent.trim()) {
+    if (assistantContent.trim() && !usedAgentJob) {
       await prisma.chatMessage
         .create({
           data: {
