@@ -542,7 +542,7 @@ export class RlmLoop {
         const sandboxBudget = getSandboxBudget();
         const execution = await this.sandbox.execute(
           generatedCode,
-          { budget: sandboxBudget }
+          { budget: sandboxBudget, subAgentHandler, toolHandler }
         );
 
         for (const tool of execution.toolCalls ?? []) {
