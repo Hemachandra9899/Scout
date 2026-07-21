@@ -104,8 +104,10 @@ function isChitchat(query: string): boolean {
   ) {
     return true;
   }
-  // Very short, non-question conversational openers.
-  if (q.split(/\s+/).length <= 3 && !q.includes("?") && !/[/.@]/.test(q)) {
+  // Very short, non-question conversational openers (e.g. "sounds good", "got it").
+  // Kept to <=2 words so real 3-word commands ("summarize this repo", "reset my
+  // password") aren't misrouted away from research/tooling.
+  if (q.split(/\s+/).length <= 2 && !q.includes("?") && !/[/.@]/.test(q)) {
     return true;
   }
   return false;

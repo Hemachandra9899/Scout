@@ -5,6 +5,7 @@ export const CACHE_DEFAULT_TTL_MS = 5 * 60 * 1000;
 export const CACHE_FETCH_TTL_MS = 10 * 60 * 1000;
 export const CACHE_SEARCH_TTL_MS = 3 * 60 * 1000;
 export const CACHE_GRAPH_REPORT_TTL_MS = 15 * 60 * 1000;
+export const CACHE_MODEL_TTL_MS = 5 * 60 * 1000;
 
 let adapter: CacheAdapter;
 let _enabled: boolean;

@@ -38,7 +38,10 @@ export async function processResearchJob(job: Job<ResearchJobPayload>) {
       result,
     });
 
-    const isCompleted = result.status === "completed";
+    // "max_steps_reached" still carries a real synthesized answer (rlm-runtime's
+    // finalizeAnswer fallback) — surface it instead of discarding it as a failure.
+    const isCompleted =
+      result.status === "completed" || result.status === "max_steps_reached";
 
     await prisma.agentRun.update({
       where: { id: run.id },

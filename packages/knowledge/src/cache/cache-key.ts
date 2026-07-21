@@ -19,3 +19,7 @@ export function graphReportCacheKey(input: { projectId?: string; reportId?: stri
   if (input.reportId) return cacheKey("graphReportById", input.reportId);
   return cacheKey("getLatestGraphReport", input.projectId ?? "");
 }
+
+export function modelCallCacheKey(mode: string, query: string): string {
+  return cacheKey("modelServiceCall", mode, query);
+}

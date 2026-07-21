@@ -5,6 +5,7 @@ import {
 } from "./faithfulness-critic.js";
 import { routeDebug } from "./routing-decision.js";
 import { isSimpleListComputation, isReverseLinkedListQuestion, isClearlyInsufficientEvidenceQuery } from "./routing-decision.js";
+import { cacheWrap, modelCallCacheKey, CACHE_MODEL_TTL_MS } from "@rlm-forge/knowledge/cache/index.js";
 
 const MODEL_SERVICE_URL =
   process.env.MODEL_SERVICE_URL || "http://model-service:8100";
@@ -14,6 +15,9 @@ const RLM_RUNTIME_URL =
 
 const ROUTER_CODING_TIMEOUT_MS = Number(
   process.env.ROUTER_CODING_TIMEOUT_MS || 45_000,
+);
+const ROUTER_REASONING_TIMEOUT_MS = Number(
+  process.env.ROUTER_REASONING_TIMEOUT_MS || 60_000,
 );
 const ROUTER_CODING_MAX_TOKENS = Number(
   process.env.ROUTER_CODING_MAX_TOKENS || 900,
@@ -101,18 +105,37 @@ async function callModelServiceOnce(
   query: string,
   model?: string,
 ): Promise<string> {
-  const response = await fetch(`${MODEL_SERVICE_URL}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      mode,
-      ...(model ? { model } : {}),
-      messages: [{ role: "user", content: query }],
-      temperature: mode === "coding" ? 0.2 : 0.4,
-      top_p: 0.8,
-      max_tokens: mode === "coding" ? ROUTER_CODING_MAX_TOKENS : 900,
-    }),
-  });
+  const timeoutMs =
+    mode === "coding" ? ROUTER_CODING_TIMEOUT_MS : ROUTER_REASONING_TIMEOUT_MS;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${MODEL_SERVICE_URL}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        mode,
+        ...(model ? { model } : {}),
+        messages: [{ role: "user", content: query }],
+        temperature: mode === "coding" ? 0.2 : 0.4,
+        top_p: 0.8,
+        max_tokens: mode === "coding" ? ROUTER_CODING_MAX_TOKENS : 900,
+      }),
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `model-service /chat (${mode}${model ? `:${model}` : ""}) timed out after ${timeoutMs}ms`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const text = await response.text();
 
@@ -131,6 +154,18 @@ async function callModelServiceOnce(
 }
 
 export async function callModelService(
+  mode: "coding" | "reasoning",
+  query: string,
+): Promise<string> {
+  const { value } = await cacheWrap(
+    modelCallCacheKey(mode, query),
+    () => callModelServiceUncached(mode, query),
+    CACHE_MODEL_TTL_MS,
+  );
+  return value;
+}
+
+async function callModelServiceUncached(
   mode: "coding" | "reasoning",
   query: string,
 ): Promise<string> {

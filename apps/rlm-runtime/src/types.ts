@@ -48,7 +48,7 @@ export type SandboxSafetyDebug = {
   stderrTruncated: boolean;
   toolCallCount: number;
   toolCallLimitHit: boolean;
-  isolationMode: "best_effort_globals" | "worker" | "none";
+  isolationMode: "best_effort_globals" | "worker" | "worker_tool_rpc" | "none";
 };
 
 export type PythonExecutionResult = {
